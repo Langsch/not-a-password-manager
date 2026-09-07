@@ -6,11 +6,13 @@ import math
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.core.create_item import create_item
+from app.core.delete_item import delete_item
 from app.core.list_items import list_items
 from app.core.reveal_item import reveal_item
+from app.core.update_item import update_item
 from app.dependencies import Caller, Crypto, Db
 from app.schemas.items import (
     DEFAULT_PAGE_SIZE,
@@ -22,6 +24,7 @@ from app.schemas.items import (
     PageMeta,
     RevealedSecrets,
     RevealRequest,
+    UpdateItemRequest,
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -128,3 +131,52 @@ async def reveal(
         password=secrets.password,
         notes=secrets.notes,
     )
+
+
+@router.patch("/{item_id}", response_model_exclude_unset=True)
+async def update(
+    item_id: UUID,
+    payload: UpdateItemRequest,
+    caller: Caller,
+    conn: Db,
+    cipher: Crypto,
+) -> CreatedItem:
+    # Only the fields actually present in the body count as changes; a field left
+    # out and a field sent as null have to mean different things.
+    changes = payload.model_dump(include=payload.model_fields_set, exclude={"generate_password"})
+
+    item = await update_item(
+        conn,
+        cipher,
+        user_id=caller,
+        item_id=item_id,
+        changes=changes,
+        generate_password=payload.generate_password,
+    )
+
+    if item.generated_password is None:
+        return CreatedItem(
+            id=item.id,
+            name=item.name,
+            username=item.username,
+            url=item.url,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+    return CreatedItem(
+        id=item.id,
+        name=item.name,
+        username=item.username,
+        url=item.url,
+        password=item.generated_password,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def destroy(item_id: UUID, caller: Caller, conn: Db) -> Response:
+    await delete_item(conn, user_id=caller, item_id=item_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
