@@ -247,13 +247,3 @@ curl -X PATCH $BASE/items/019a7f31-… \
 # 7. sign out
 curl -X POST $BASE/auth/logout -H "Authorization: Bearer $TOKEN"
 ```
-
-### Checking that encryption is working
-
-Store a password you recognise, then look for it in a dump:
-
-```bash
-docker compose exec db pg_dump -U postgres passwords | grep "the-password-you-stored"
-```
-
-No output is the expected result.
