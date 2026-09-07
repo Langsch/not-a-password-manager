@@ -56,5 +56,9 @@ async def change_password(
         "user_id": user_id,
     }
 
-    await conn.execute(sql, params)
-    await close_all_sessions(conn, user_id)
+    # The two writes are one gesture. The connection is in autocommit, so
+    # without this the new password could stand while the sessions it was
+    # meant to invalidate stayed open — the exact opposite of the point.
+    async with conn.transaction():
+        await conn.execute(sql, params)
+        await close_all_sessions(conn, user_id)

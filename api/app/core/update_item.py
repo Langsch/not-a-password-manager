@@ -56,59 +56,64 @@ async def update_item(
         "user_id": user_id,
     }
 
-    async with conn.cursor() as cur:
-        await cur.execute(sql, params)
-        current = await cur.fetchone()
+    # One transaction around the read and the write: the connection is in
+    # autocommit, and FOR UPDATE holds its lock only until the transaction
+    # ends. Without this the row would be unlocked again before the UPDATE,
+    # so a concurrent edit of another field could be lost.
+    async with conn.transaction():
+        async with conn.cursor() as cur:
+            await cur.execute(sql, params)
+            current = await cur.fetchone()
 
-    # Not there, or not theirs — the caller is told the same thing either way.
-    if current is None:
-        raise ItemNotFound
+        # Not there, or not theirs — the caller is told the same thing either way.
+        if current is None:
+            raise ItemNotFound
 
-    generated_password = None
-    password_encrypted = current["password_encrypted"]
+        generated_password = None
+        password_encrypted = current["password_encrypted"]
 
-    if generate_password:
-        generated_password = new_password()
-        password_encrypted = cipher.encrypt(generated_password)
-    elif "password" in changes:
-        password_encrypted = cipher.encrypt(changes["password"])
+        if generate_password:
+            generated_password = new_password()
+            password_encrypted = cipher.encrypt(generated_password)
+        elif "password" in changes:
+            password_encrypted = cipher.encrypt(changes["password"])
 
-    notes_encrypted = current["notes_encrypted"]
-    if "notes" in changes:
-        notes_encrypted = None
-        if changes["notes"] is not None:
-            notes_encrypted = cipher.encrypt(changes["notes"])
+        notes_encrypted = current["notes_encrypted"]
+        if "notes" in changes:
+            notes_encrypted = None
+            if changes["notes"] is not None:
+                notes_encrypted = cipher.encrypt(changes["notes"])
 
-    sql = """
-        UPDATE items i
-           SET name = %(name)s,
-               username = %(username)s,
-               url = %(url)s,
-               password_encrypted = %(password_encrypted)s,
-               notes_encrypted = %(notes_encrypted)s
-         WHERE i.external_id = %(item_id)s
-           AND i.user_id = %(user_id)s
-        RETURNING i.external_id AS id,
-                  i.name,
-                  i.username,
-                  i.url,
-                  i.created_at,
-                  i.updated_at
-    """
+        sql = """
+            UPDATE items i
+               SET name = %(name)s,
+                   username = %(username)s,
+                   url = %(url)s,
+                   password_encrypted = %(password_encrypted)s,
+                   notes_encrypted = %(notes_encrypted)s
+             WHERE i.external_id = %(item_id)s
+               AND i.user_id = %(user_id)s
+            RETURNING i.external_id AS id,
+                      i.name,
+                      i.username,
+                      i.url,
+                      i.created_at,
+                      i.updated_at
+        """
 
-    params = {
-        "name": changes.get("name", current["name"]),
-        "username": changes.get("username", current["username"]),
-        "url": changes.get("url", current["url"]),
-        "password_encrypted": password_encrypted,
-        "notes_encrypted": notes_encrypted,
-        "item_id": item_id,
-        "user_id": user_id,
-    }
+        params = {
+            "name": changes.get("name", current["name"]),
+            "username": changes.get("username", current["username"]),
+            "url": changes.get("url", current["url"]),
+            "password_encrypted": password_encrypted,
+            "notes_encrypted": notes_encrypted,
+            "item_id": item_id,
+            "user_id": user_id,
+        }
 
-    async with conn.cursor() as cur:
-        await cur.execute(sql, params)
-        row = await cur.fetchone()
+        async with conn.cursor() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
 
     assert row is not None  # noqa: S101 — the row was locked a moment ago
     return UpdatedItem(row, generated_password)
