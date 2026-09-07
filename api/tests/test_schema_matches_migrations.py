@@ -18,41 +18,41 @@ from psycopg.rows import tuple_row
 SCHEMA_SQL = Path(__file__).resolve().parents[1] / "schema.sql"
 PROJECT = Path(__file__).resolve().parents[1]
 
-DESCRIBE = """
-SELECT 'column'     AS kind,
-       table_name || '.' || column_name AS name,
-       data_type
-         || coalesce('(' || character_maximum_length || ')', '')
-         || ' null=' || is_nullable
-         || ' default=' || coalesce(column_default, '-') AS definition
-  FROM information_schema.columns
- WHERE table_schema = 'public' AND table_name <> 'alembic_version'
-UNION ALL
-SELECT 'constraint',
-       conrelid::regclass::text || '.' || conname,
-       pg_get_constraintdef(oid)
-  FROM pg_constraint
- WHERE connamespace = 'public'::regnamespace
-   AND conrelid::regclass::text <> 'alembic_version'
-UNION ALL
-SELECT 'index', indexname, indexdef
-  FROM pg_indexes
- WHERE schemaname = 'public' AND tablename <> 'alembic_version'
-UNION ALL
-SELECT 'trigger', tgname, pg_get_triggerdef(oid)
-  FROM pg_trigger
- WHERE NOT tgisinternal
-UNION ALL
-SELECT 'function', proname, pg_get_functiondef(oid)
-  FROM pg_proc
- WHERE pronamespace = 'public'::regnamespace
- ORDER BY 1, 2, 3
-"""
-
 
 def describe(dsn: str) -> list[tuple[str, str, str]]:
     with psycopg.connect(dsn) as conn, conn.cursor(row_factory=tuple_row) as cur:
-        return cur.execute(DESCRIBE).fetchall()
+        return cur.execute(
+            """
+        SELECT 'column'     AS kind,
+               table_name || '.' || column_name AS name,
+               data_type
+                 || coalesce('(' || character_maximum_length || ')', '')
+                 || ' null=' || is_nullable
+                 || ' default=' || coalesce(column_default, '-') AS definition
+          FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name <> 'alembic_version'
+        UNION ALL
+        SELECT 'constraint',
+               conrelid::regclass::text || '.' || conname,
+               pg_get_constraintdef(oid)
+          FROM pg_constraint
+         WHERE connamespace = 'public'::regnamespace
+           AND conrelid::regclass::text <> 'alembic_version'
+        UNION ALL
+        SELECT 'index', indexname, indexdef
+          FROM pg_indexes
+         WHERE schemaname = 'public' AND tablename <> 'alembic_version'
+        UNION ALL
+        SELECT 'trigger', tgname, pg_get_triggerdef(oid)
+          FROM pg_trigger
+         WHERE NOT tgisinternal
+        UNION ALL
+        SELECT 'function', proname, pg_get_functiondef(oid)
+          FROM pg_proc
+         WHERE pronamespace = 'public'::regnamespace
+         ORDER BY 1, 2, 3
+            """
+        ).fetchall()
 
 
 def test_schema_sql_matches_the_migrations(scratch_db) -> None:  # type: ignore[no-untyped-def]

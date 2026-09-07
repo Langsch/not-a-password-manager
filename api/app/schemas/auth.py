@@ -16,6 +16,16 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=1024)
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    token: str
+    expires_at: datetime
+
+
 class UserResponse(BaseModel):
     id: UUID
     email: str

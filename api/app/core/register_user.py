@@ -13,17 +13,18 @@ from psycopg import AsyncConnection, errors
 from app.domain.errors import EmailAlreadyRegistered
 from app.security.passwords import hash_password
 
-INSERT = """
-INSERT INTO users (email, password_hash)
-VALUES (%s, %s)
-RETURNING external_id AS id, email, created_at
-"""
-
 
 async def register_user(conn: AsyncConnection[Any], email: str, password: str) -> dict[str, Any]:
     try:
         async with conn.cursor() as cur:
-            await cur.execute(INSERT, (email, hash_password(password)))
+            await cur.execute(
+                """
+                INSERT INTO users (email, password_hash)
+                VALUES (%s, %s)
+                RETURNING external_id AS id, email, created_at
+                """,
+                (email, hash_password(password)),
+            )
             row = await cur.fetchone()
     except errors.UniqueViolation as exc:
         raise EmailAlreadyRegistered from exc

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
 
 
 def _with_database(url: str, name: str) -> str:
@@ -92,8 +95,22 @@ def sql(migrated_database: str) -> Iterator[object]:
     """Run a query against the test database and get rows back."""
 
     def run(query: str, params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
-        with psycopg.connect(migrated_database) as conn, conn.cursor() as cur:
+        with psycopg.connect(migrated_database, autocommit=True) as conn, conn.cursor() as cur:
             cur.execute(query, params)  # type: ignore[arg-type]
+
+            # UPDATE and DELETE produce no rows; asking anyway is an error.
+            if cur.description is None:
+                return []
+
             return cur.fetchall()
 
     yield run
+
+
+@pytest.fixture
+async def aconn(migrated_database: str) -> AsyncIterator[AsyncConnection[Any]]:
+    """An async connection for exercising the core layer without going through HTTP."""
+    async with await AsyncConnection.connect(
+        migrated_database, autocommit=True, row_factory=dict_row
+    ) as conn:
+        yield conn
