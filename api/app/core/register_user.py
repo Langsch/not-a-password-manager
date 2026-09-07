@@ -23,7 +23,7 @@ async def register_user(conn: AsyncConnection[Any], email: str, password: str) -
                   u.created_at
     """
 
-    params = {
+    params: dict[str, Any] = {
         "email": email,
         "password_hash": hash_password(password),
     }

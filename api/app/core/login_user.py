@@ -20,7 +20,7 @@ async def login_user(conn: AsyncConnection[Any], email: str, password: str) -> t
          WHERE lower(u.email) = lower(%(email)s)
     """
 
-    params = {"email": email}
+    params: dict[str, Any] = {"email": email}
 
     async with conn.cursor() as cur:
         await cur.execute(sql, params)

@@ -27,7 +27,7 @@ async def open_session(conn: AsyncConnection[Any], user_id: int) -> tuple[str, d
     """
 
     token = new_token()
-    params = {
+    params: dict[str, Any] = {
         "token_hash": token_digest(token),
         "user_id": user_id,
         "idle": IDLE_WINDOW,
@@ -58,7 +58,7 @@ async def touch_session(conn: AsyncConnection[Any], token: str) -> int | None:
         RETURNING s.user_id
     """
 
-    params = {
+    params: dict[str, Any] = {
         "idle": IDLE_WINDOW,
         "token_hash": token_digest(token),
     }
@@ -79,7 +79,7 @@ async def close_session(conn: AsyncConnection[Any], token: str) -> None:
          WHERE s.token_hash = %(token_hash)s
     """
 
-    params = {"token_hash": token_digest(token)}
+    params: dict[str, Any] = {"token_hash": token_digest(token)}
 
     await conn.execute(sql, params)
 
@@ -90,6 +90,6 @@ async def close_all_sessions(conn: AsyncConnection[Any], user_id: int) -> None:
          WHERE s.user_id = %(user_id)s
     """
 
-    params = {"user_id": user_id}
+    params: dict[str, Any] = {"user_id": user_id}
 
     await conn.execute(sql, params)
