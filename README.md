@@ -1,259 +1,85 @@
+<div align="center">
+
+<img src="docs/napm.gif" width="600" alt="An ASCII padlock dozing next to the napm wordmark. Three z's drift up from it, then an exclamation mark pops, the padlock jolts awake with wide round eyes and its shackle springs open, and it settles back to sleep.">
+
+</div>
+
 # not-a-password-manager
 
-A self-hosted password notebook. Run it on your own machine or your home server,
-sign in with an email and a password, and keep your passwords somewhere that
-belongs to you.
+A password notebook you run yourself. Put it on your machine or your home server, sign in with an email and a password, and keep your passwords somewhere that belongs to you.
 
-Most password managers ask you to trust a company with your secrets, or hand you a
-zero-knowledge design whose price is that forgetting one password destroys
-everything you stored. This one takes a third road, and it only works because of
-who runs it: you are the operator, so the server is allowed to hold the key,
-it just never keeps that key next to the data.
+A service, a terminal client, and a Postgres database. That is the whole thing.
 
-## How secrets are stored
+This is a personal project, built in the open. It is small on purpose — one person's passwords, one machine, nobody's company behind it.
 
-Each item's password and notes are encrypted with **AES-256-GCM** before they reach
-the database. The key comes from an environment variable and is never written to
-the database. Service name, username and URL stay in the clear, which is what makes
-search and sorting a plain SQL clause.
+---
+
+## Why this exists
+
+Most password managers ask you to trust a company with your secrets. The ones that refuse to hold your data hand you a zero-knowledge design instead, and its price is absolute: forget the one password and everything you stored is gone, with nobody on earth able to help you.
+
+This takes a third road, and it only works because of who runs it. You are the operator. The server is allowed to hold the key — it just never keeps that key next to the data. A stolen backup is a file of ciphertext. A forgotten account password is a bad afternoon, not a catastrophe.
+
+That is a trade, not a stronger design. The table below is the honest version of it, and it is worth reading before you decide this fits you.
+
+## What running it yourself means
+
+There is nothing to sign up for. No service of mine, no plan, no account anywhere. You clone the repository, start it, and the thing that holds your passwords is a Postgres container on hardware you own.
+
+Two shapes make sense:
+
+| | |
+| --- | --- |
+| **One machine** | the service and the client on the same laptop. Nothing ever leaves it. |
+| **A home server** | the service on a machine that stays on, an old laptop, a Pi, a NAS, and the client on whatever you are sitting at. |
+
+You are the administrator, and that is the whole bargain. Nobody backs it up for you. Nobody resets anything. If the machine is off, your passwords are not available, and if you lose the encryption key they are not available ever again. That is the same sentence as "nobody else can read it", said from the other side.
+
+## What it does
+
+Each item's password and notes are encrypted with **AES-256-GCM** before they reach the database. The key comes from an environment variable and is never written to the database. Service name, username and URL stay in the clear, which is what makes search and sorting a plain SQL clause.
 
 |  | |
 | --- | --- |
 | **Protects against** | a leaked backup, a stolen disk, a database dump in the wrong hands |
 | **Does not protect against** | a server compromised while running — whoever executes code on it reads everything |
 
-**Losing the encryption key means losing every password.** Back it up separately
-from the database.
+**Losing the encryption key means losing every password.** Back it up separately from the database.
 
-## Signing in, and revealing
+### Signing in, and revealing
 
-A session lasts **7 days of inactivity** and **30 days** total, whichever comes
-first. Every request pushes the first deadline forward. Signing out ends it
-immediately, and changing your password drops every device.
+A session lasts 7 days of inactivity and 30 days total, whichever comes first. Every request pushes the first deadline forward. Signing out ends it immediately, and changing your password drops every device.
 
-Being signed in shows you your items. **Seeing a stored password requires typing
-your account password again**, every time — which is what makes a long session safe
-to leave open.
+Being signed in shows you your items. Seeing a stored password requires typing your account password again, every time, which is what makes a long session safe to leave open.
 
-## Stack
+## The client
 
-FastAPI · PostgreSQL 18+ · psycopg 3 with raw SQL · Alembic · Docker
+`napm` is a terminal application: a sidebar, your items on the right, and search on `/`. It reads a password back, generates a new one, copies to the clipboard, and stays out of the way otherwise. [Running it](#running-it) installs it in step 4.
 
----
+The session lives in `~/.config/not-a-password-manager/`, so signing in once survives closing the terminal.
 
-# The API
+| | |
+| --- | --- |
+| `r` reveal · `c` copy · `n` new · `e` edit · `g` rotate · `d` delete | on an item |
+| `/` search · `←` `→` pages · `ctrl+r` refresh | on the list |
+| `ctrl+l` forget the account password · `ctrl+o` sign out | anywhere |
 
-Base: `/api/v1` · Auth: `Authorization: Bearer <token>`
-
-Dates are ISO-8601 with an offset — UTC, so they end in `Z`. Every id in a URL or a
-response is a UUID; the database's sequential id never leaves.
-
-### Errors
-
-Every failure uses the same envelope:
-
-```json
-{ "error": { "code": "ITEM_NOT_FOUND", "message": "No such item." } }
-```
-
-`code` is the contract and its text never changes. `message` is for humans and
-**must not be interpreted by code**.
-
-| code | HTTP | When |
-| --- | --- | --- |
-| `VALIDATION_ERROR` | 422 | missing body, missing field, or malformed input |
-| `UNAUTHENTICATED` | 401 | token absent, unknown, or expired |
-| `INVALID_CREDENTIALS` | 401 | wrong email or password |
-| `EMAIL_ALREADY_REGISTERED` | 409 | that email already has an account |
-| `ITEM_NOT_FOUND` | 404 | the item does not exist **or is not yours** |
-| `INTERNAL_ERROR` | 500 | unexpected failure, with no internal detail |
-
-Someone else's item returns `404`, not `403` — a `403` would confirm that it exists.
-
-Two more come from the framework, before a route is reached. They are here because
-the envelope has no exceptions, not because an endpoint raises them:
-
-| code | HTTP | When |
-| --- | --- | --- |
-| `NOT_FOUND` | 404 | no such path |
-| `METHOD_NOT_ALLOWED` | 405 | the path exists, the method does not |
-
----
-
-## Account
-
-### `POST /auth/register`
-
-```json
-{ "email": "rafael@example.com", "password": "the account password" }
-```
-```json
-// 201
-{ "id": "018f3a2b-…", "email": "rafael@example.com",
-  "created_at": "2026-09-07T05:32:57.594865Z" }
-```
-`VALIDATION_ERROR` · `EMAIL_ALREADY_REGISTERED`
-
-Returns no token — only login issues tokens.
-
----
-
-### `POST /auth/login`
-
-```json
-{ "email": "rafael@example.com", "password": "the account password" }
-```
-```json
-// 200
-{ "token": "9f2a7c1e4b8d…", "expires_at": "2026-09-14T05:32:57.594865Z" }
-```
-`VALIDATION_ERROR` · `INVALID_CREDENTIALS`
-
-The token is opaque: 32 random bytes with nothing readable inside. Store the string
-and repeat it on later requests. There is no `/auth/refresh` — every authenticated
-request renews the deadline.
-
----
-
-### `POST /auth/logout`
-
-No body. `204`. The token stops working on the next request.
-
-`UNAUTHENTICATED`
-
----
-
-### `PUT /account/password`
-
-```json
-{ "current_password": "…", "new_password": "…" }
-```
-`204` · `VALIDATION_ERROR` · `INVALID_CREDENTIALS` · `UNAUTHENTICATED`
-
-Requires the current password even with a valid token.
-
-**Deletes every session, including yours** — you sign in again afterwards.
-
----
-
-## Items
-
-### `GET /items`
-
-```
-GET /items?page=1&per_page=50&q=git
-```
-
-| Parameter | Default | Range |
-| --- | --- | --- |
-| `page` | 1 | >= 1 |
-| `per_page` | 50 | 1 to 200 |
-| `q` | — | searches `name` and `username` |
-
-```json
-// 200
-{
-  "data": [
-    { "id": "019a7f31-…", "name": "GitHub", "username": "rafael",
-      "url": "https://github.com",
-      "created_at": "2026-09-07T05:32:57.594865Z",
-      "updated_at": "2026-09-07T05:32:57.594865Z" }
-  ],
-  "meta": { "page": 1, "per_page": 50, "total": 137, "pages": 3 }
-}
-```
-`VALIDATION_ERROR` · `UNAUTHENTICATED`
-
-**Passwords and notes never appear here.** Ordering is fixed: `name`, then id.
-A page past the end returns `200` with an empty `data`.
-
----
-
-### `POST /items`
-
-```json
-{ "name": "GitHub", "username": "rafael", "url": "https://github.com",
-  "password": "K7#mQ2vX!pL9", "notes": null }
-```
-
-**`password` is optional.** Leave it out and the server generates one and returns it
-in the response — 20 characters drawn from letters, digits and `!#$%&*+-=?@^_~`,
-around 125 bits. There are no options: one good default is one less thing to get
-wrong.
-
-```json
-// 201 — the password field appears only when it was generated
-{ "id": "019a7f31-…", "name": "GitHub", "username": "rafael", "url": null,
-  "password": "qZJC@@&ZZ+y7sY+I@_nv",
-  "created_at": "2026-09-07T05:32:57.594865Z",
-  "updated_at": "2026-09-07T05:32:57.594865Z" }
-```
-
-Required: `name`. · `VALIDATION_ERROR` · `UNAUTHENTICATED`
-
----
-
-### `POST /items/{id}/reveal`
-
-Reveals the secret fields. **Requires the account password** on top of the token.
-
-```json
-{ "password": "the account password" }
-```
-```json
-// 200
-{ "password": "K7#mQ2vX!pL9", "notes": "recovery key is in the physical safe" }
-```
-`VALIDATION_ERROR` · `INVALID_CREDENTIALS` · `ITEM_NOT_FOUND` · `UNAUTHENTICATED`
-
-This is the only place an **already stored** password leaves the server. The
-account password is checked before the item is looked up, so a `404` never tells a
-caller holding only a token which ids exist.
-
----
-
-### `PATCH /items/{id}`
-
-Only the fields you send change.
-
-```json
-{ "password": "the new password" }
-```
-```json
-{ "generate_password": true }
-```
-
-Returns the whole item. The `password` field appears in the response only when it
-was generated.
-
-`VALIDATION_ERROR` (empty body, unknown field, or `password` and
-`generate_password` together) · `ITEM_NOT_FOUND` · `UNAUTHENTICATED`
-
-Does not require the account password.
-
----
-
-### `DELETE /items/{id}`
-
-`204`, no body. The row is gone for real; there is no trash.
-
-`ITEM_NOT_FOUND` · `UNAUTHENTICATED`
-
----
-
-## Operations
-
-### `GET /health`
-
-`200` if the service is up and can reach the database. No authentication.
+The account password is held in memory for as long as the app is open, so the first reveal asks for it and the rest do not. Closing the app forgets it, and so does `ctrl+l`. That is the whole reason the client is a screen and not a command.
 
 ---
 
 # Running it
 
-Everything runs in Docker. You need Docker with Compose, and nothing else.
+The service runs in Docker, so **Docker with Compose** is all it needs. The terminal client is a Python package and wants **Python 3.13 or newer**. From nothing to a stored password is five steps.
 
-### 1. Configure
+### 1. Get the code
+
+```bash
+git clone https://github.com/Langsch/not-a-password-manager.git
+cd not-a-password-manager
+```
+
+### 2. Configure
 
 ```bash
 cp .env.example .env
@@ -272,10 +98,9 @@ POSTGRES_PASSWORD=change-me
 ENCRYPTION_KEY=<the value you just generated>
 ```
 
-**Keep that key somewhere safe, outside the database backup.** Without it, what is
-in the database does not come back. The service refuses to start without it.
+**Keep that key somewhere safe, outside the database backup.** Without it, what is in the database does not come back. The service refuses to start without it.
 
-### 2. Start
+### 3. Start the service
 
 ```bash
 docker compose up -d db                        # database
@@ -283,14 +108,52 @@ docker compose run --rm api alembic upgrade head   # schema
 docker compose up -d api                       # service
 ```
 
-Migrations are a separate command from boot, on purpose — two instances starting
-together must not race each other through the same revisions.
+Migrations are a separate command from boot, on purpose — two instances starting together must not race each other through the same revisions.
 
-The API is on `http://localhost:8000`. Check it:
+The API is on `http://localhost:8000`. Check it before going further:
 
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
+
+### 4. Install the client
+
+```bash
+pip install ./client
+```
+
+If the service is somewhere other than this machine, tell the client where:
+
+```bash
+export NAPM_API_URL=http://your-home-server:8000
+```
+
+### 5. Create your account
+
+```bash
+napm
+```
+
+The first screen has two tabs; take **Create account**. The account is created on your own service, which is the only place it exists — and the warning about there being no password reset is not decoration.
+
+From there: `n` stores a password, and leaving the password field empty has the server generate a good one. `r` reads one back, `c` copies it.
+
+### Where it listens
+
+Compose publishes both ports on **all interfaces**, so anything on your local network can reach `8000`, and `5432` besides:
+
+```bash
+docker compose ps    # 0.0.0.0:8000->8000/tcp, 0.0.0.0:5432->5432/tcp
+```
+
+On a home server behind a router that is usually what you want. On a laptop that visits café wifi it is not. To keep both to the machine itself, edit `docker-compose.yml`:
+
+```yaml
+ports:
+  - "127.0.0.1:8000:8000"    # and 127.0.0.1:5432:5432 under db
+```
+
+The database port is only published for your convenience — `psql`, a backup, a look at the ciphertext. Nothing needs it from outside, and it is the first line to comment out if you would rather it were not there at all.
 
 ### Everyday commands
 
@@ -317,62 +180,26 @@ docker compose up -d api
 Two things, and keeping them together defeats the point:
 
 ```bash
-docker compose exec db pg_dump -U postgres passwords > backup.sql
+docker compose exec db pg_dump -U passwords passwords > backup.sql
 ```
 
 ...and the `ENCRYPTION_KEY` from your `.env`, stored somewhere else entirely.
 
----
-
-# Using it
-
-A full path with `curl`:
+To check that the encryption is doing its job, store a password you recognise and look for it in a dump:
 
 ```bash
-BASE=http://localhost:8000/api/v1
-
-# 1. create the account
-curl -X POST $BASE/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"rafael@example.com","password":"a good password"}'
-
-# 2. sign in
-TOKEN=$(curl -s -X POST $BASE/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"rafael@example.com","password":"a good password"}' \
-  | jq -r .token)
-
-# 3. store a password, letting the server generate it
-curl -X POST $BASE/items \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"GitHub","username":"rafael","url":"https://github.com"}'
-
-# 4. list them (no passwords)
-curl $BASE/items -H "Authorization: Bearer $TOKEN"
-
-# 5. reveal — requires the account password
-curl -X POST $BASE/items/019a7f31-…/reveal \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"password":"a good password"}'
-
-# 6. rotate
-curl -X PATCH $BASE/items/019a7f31-… \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"generate_password":true}'
-
-# 7. sign out
-curl -X POST $BASE/auth/logout -H "Authorization: Bearer $TOKEN"
-```
-
-### Checking that encryption is working
-
-Store a password you recognise, then look for it in a dump:
-
-```bash
-docker compose exec db pg_dump -U postgres passwords | grep "the-password-you-stored"
+docker compose exec db pg_dump -U passwords passwords | grep "the-password-you-stored"
 ```
 
 No output is the expected result.
+
+---
+
+# The API
+
+Ten endpoints under `/api/v1`, one error envelope, and a full path with `curl` — **[api.md](api.md)**.
+
+Built with FastAPI · PostgreSQL 18+ · psycopg 3 with raw SQL · Alembic · Docker.
 
 ---
 
