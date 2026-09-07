@@ -19,6 +19,7 @@ from app.api import account, auth, health
 from app.config import get_settings
 from app.db.pool import create_pool
 from app.errors import register_error_handlers
+from app.security.encryption import Cipher, decode_key
 
 API_PREFIX = "/api/v1"
 
@@ -26,10 +27,13 @@ API_PREFIX = "/api/v1"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    key = decode_key(settings.encryption_key)
     pool = create_pool(settings.database_url)
 
     await pool.open(wait=True)
+
     app.state.pool = pool
+    app.state.cipher = Cipher(key)
     try:
         yield
     finally:

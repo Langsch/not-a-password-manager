@@ -11,6 +11,7 @@ from psycopg import AsyncConnection
 
 from app.core.sessions import touch_session
 from app.domain.errors import Unauthenticated
+from app.security.encryption import Cipher
 
 # auto_error=False so a missing header raises our Unauthenticated rather than
 # FastAPI's own 403, which would leave through a different shape.
@@ -24,6 +25,15 @@ async def db(request: Request) -> AsyncIterator[AsyncConnection[Any]]:
 
 
 Db = Annotated[AsyncConnection[Any], Depends(db)]
+
+
+async def cipher(request: Request) -> Cipher:
+    """The process-wide cipher, built once at startup from ENCRYPTION_KEY."""
+    built: Cipher = request.app.state.cipher
+    return built
+
+
+Crypto = Annotated[Cipher, Depends(cipher)]
 
 
 async def bearer_token(
