@@ -12,13 +12,31 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, Static
 
 from napm.api import Item, Secrets
+from napm.clipboard import to_system_clipboard
 
 HELD_IN_MEMORY = "Held in memory until you close the app. Never written to disk."
 
+NO_TOOL = (
+    "Sent to the terminal, which may have ignored it. "
+    "For a local copy install wl-clipboard, xclip or xsel."
+)
+
 
 async def copy_password(widget: Widget, password: str) -> None:
+    """Both routes at once, and an honest answer about which one worked.
+
+    The escape sequence goes out regardless: over ssh it is the only one that
+    can reach the terminal you are sitting at.
+    """
     widget.app.copy_to_clipboard(password)
-    widget.notify("Password copied.")
+
+    tool = await to_system_clipboard(password)
+
+    if tool is None:
+        widget.notify(NO_TOOL, severity="warning")
+        return
+
+    widget.notify(f"Password copied with {tool}.")
 
 
 class AskPassword(ModalScreen[str | None]):
