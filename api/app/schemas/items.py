@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 50
@@ -17,6 +17,36 @@ class CreateItemRequest(BaseModel):
     url: str | None = None
     password: str | None = Field(default=None, max_length=1024)
     notes: str | None = None
+
+
+class UpdateItemRequest(BaseModel):
+    """Only the fields present in the body change.
+
+    `extra="forbid"` turns a misspelled field into a 422 rather than a silent
+    no-op, which is the failure that would be found weeks later.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    username: str | None = Field(default=None, max_length=255)
+    url: str | None = None
+    password: str | None = Field(default=None, max_length=1024)
+    notes: str | None = None
+    generate_password: bool = False
+
+    @model_validator(mode="after")
+    def check_the_body_says_something(self) -> UpdateItemRequest:
+        if not self.model_fields_set:
+            raise ValueError("the body must carry at least one field")
+
+        if "password" in self.model_fields_set and self.generate_password:
+            raise ValueError("send either password or generate_password, not both")
+
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be cleared")
+
+        return self
 
 
 class ItemSummary(BaseModel):
