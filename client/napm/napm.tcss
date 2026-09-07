@@ -1,0 +1,195 @@
+/* One vocabulary for the whole app: $primary draws the frames, $accent names
+   things, $text-muted labels them, and nothing else carries colour unless it
+   is saying something — a held password, a warning, a deletion. */
+
+Screen {
+    layout: vertical;
+    background: $background;
+}
+
+ModalScreen {
+    align: center middle;
+    background: $background 55%;
+}
+
+/* --- pieces used on more than one screen -------------------------------- */
+
+Input {
+    border: round $panel;
+    border-title-color: $text-muted;
+    background: $surface;
+    height: 3;
+}
+
+Input:focus {
+    border: round $accent;
+    border-title-color: $accent;
+}
+
+.card {
+    border: round $primary;
+    border-title-color: $accent;
+    border-title-style: bold;
+    background: $surface;
+    padding: 1 2;
+    height: auto;
+    max-height: 100%;
+}
+
+.card-heading {
+    text-style: bold;
+    color: $accent;
+}
+
+.hint {
+    color: $text-muted;
+    padding-bottom: 1;
+}
+
+.status-line {
+    height: auto;
+    color: $text-muted;
+}
+
+.buttons {
+    height: auto;
+    align-horizontal: right;
+    padding-top: 1;
+}
+
+.buttons Button {
+    margin-left: 2;
+    min-width: 14;
+}
+
+/* --- signing in --------------------------------------------------------- */
+
+#login-frame {
+    align: center middle;
+    height: 1fr;
+}
+
+/* Signing in fits a 24-row terminal; creating an account has one field more
+   and scrolls there rather than shrinking the card everywhere else. */
+#login-card {
+    width: 58;
+    height: auto;
+    max-height: 100%;
+    overflow-y: auto;
+    border: round $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+.brand {
+    text-style: bold;
+    color: $accent;
+}
+
+.brand-tagline {
+    color: $text-muted;
+}
+
+#mode {
+    margin-bottom: 1;
+}
+
+#login-card .buttons {
+    padding-top: 0;
+}
+
+/* --- the list ----------------------------------------------------------- */
+
+#body {
+    height: 1fr;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+#meters {
+    width: 1fr;
+    height: 4;
+    border: round $primary;
+    padding: 0 1;
+}
+
+.meter {
+    width: 1fr;
+    height: 2;
+    content-align: center middle;
+    text-align: center;
+}
+
+#search {
+    width: 1fr;
+    margin-top: 1;
+}
+
+#items {
+    width: 1fr;
+    height: 1fr;
+    margin-top: 1;
+    background: $surface;
+}
+
+#items > .datatable--header {
+    background: $surface;
+    color: $text-muted;
+    text-style: bold;
+}
+
+#items > .datatable--cursor {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+ItemsScreen .status-line {
+    height: auto;
+}
+
+/* --- the small screens -------------------------------------------------- */
+
+#ask {
+    width: 56;
+}
+
+#secrets {
+    width: 72;
+}
+
+/* A resolved height, so the field list is what shrinks on a short terminal
+   and Save never ends up below the fold. */
+#form {
+    width: 66;
+    height: 1fr;
+    max-height: 26;
+}
+
+#confirm-card {
+    width: 60;
+}
+
+#form-fields {
+    height: 1fr;
+}
+
+/* The one place a stored password is on screen: framed, and the only thing
+   on the card wearing the accent colour. */
+.secret {
+    border: round $accent;
+    border-title-color: $accent;
+    color: $accent;
+    text-style: bold;
+    padding: 1 2;
+    height: auto;
+}
+
+#notes {
+    border: round $panel;
+    border-title-color: $text-muted;
+    padding: 0 2;
+    margin-top: 1;
+    height: auto;
+    max-height: 7;
+}
