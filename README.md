@@ -1,3 +1,9 @@
+<div align="center">
+
+<img src="docs/napm.gif" width="600" alt="An ASCII padlock dozing next to the napm wordmark. Three z's drift up from it, then an exclamation mark pops, the padlock jolts awake with wide round eyes and its shackle springs open, and it settles back to sleep.">
+
+</div>
+
 # not-a-password-manager
 
 A password notebook you run yourself. Put it on your machine or your home server, sign in with an email and a password, and keep your passwords somewhere that belongs to you.
