@@ -252,7 +252,7 @@ cp .env.example .env
 Then generate the encryption key and put it in `.env`:
 
 ```bash
-docker run --rm python:3.12-alpine python -c \
+docker run --rm python:3.13-alpine python -c \
   "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
 ```
 
