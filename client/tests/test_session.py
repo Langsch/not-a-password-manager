@@ -13,6 +13,7 @@ def a_session(days: int = 7) -> session.StoredSession:
         base_url="http://localhost:8000",
         token=TOKEN,
         expires_at=datetime.now(UTC) + timedelta(days=days),
+        email="rafael@example.com",
     )
 
 
@@ -46,7 +47,7 @@ def test_the_account_password_is_never_in_the_file(config_dir):
 
     body = json.loads(session.SESSION_FILE.read_text())
 
-    assert set(body) == {"base_url", "token", "expires_at"}
+    assert set(body) == {"base_url", "token", "expires_at", "email"}
 
 
 def test_nothing_stored_is_not_an_error(config_dir):
@@ -65,6 +66,21 @@ def test_a_file_missing_a_field_reads_as_nothing_stored(config_dir):
     session.SESSION_FILE.write_text(json.dumps({"token": TOKEN}))
 
     assert session.load() is None
+
+
+def test_a_file_from_before_the_email_was_stored_still_loads(config_dir):
+    saved = a_session()
+    session.save(saved)
+
+    body = json.loads(session.SESSION_FILE.read_text())
+    del body["email"]
+    session.SESSION_FILE.write_text(json.dumps(body))
+
+    loaded = session.load()
+
+    assert loaded is not None
+    assert loaded.token == TOKEN
+    assert loaded.email == ""
 
 
 def test_an_expired_session_says_so():

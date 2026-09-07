@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 from napm import api, session
 from napm.app import NapmApp
-from napm.screens.items import ItemsScreen
+from napm.screens.items_pane import ItemsPane
 from napm.screens.login import LoginScreen
+from napm.screens.main import MainScreen
 from napm.screens.modals import AskPassword, ShowSecrets
 from tests.conftest import EMAIL, PASSWORD
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import ContentSwitcher, DataTable, Input, ListView, Static
+
+BASE = "http://localhost:8000"
 
 
 async def settle(pilot, rounds: int = 8):
@@ -28,12 +32,29 @@ async def sign_in(pilot, app):
     await settle(pilot)
 
 
+async def seed(server, *items):
+    client = api.Client(BASE)
+    await client.login(EMAIL, PASSWORD)
+
+    for name, username, password, notes in items:
+        await client.create_item(name, username, password=password, notes=notes)
+
+    await client.close()
+
+
+def table(app) -> DataTable:
+    return app.screen.query_one("#items", DataTable)
+
+
 def shown_password(app) -> str:
-    return str(app.screen.query_one("#password", Static).content)
+    return str(app.screen.query_one("#detail-password", Static).content)
 
 
-async def test_signing_in_lands_on_the_list(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
+# --- signing in ---------------------------------------------------------------
+
+
+async def test_signing_in_lands_on_the_main_screen(server, config_dir):
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
@@ -42,11 +63,21 @@ async def test_signing_in_lands_on_the_list(server, config_dir):
 
         await sign_in(pilot, app)
 
-        assert isinstance(app.screen, ItemsScreen)
+        assert isinstance(app.screen, MainScreen)
+
+
+async def test_the_login_screen_has_no_field_for_the_server(server, config_dir):
+    """The address is settled in the environment, before the app starts."""
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        assert not app.screen.query("#base-url")
 
 
 async def test_a_wrong_password_stays_on_the_login_screen(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
@@ -62,68 +93,116 @@ async def test_a_wrong_password_stays_on_the_login_screen(server, config_dir):
         assert session.load() is None
 
 
-async def test_the_list_shows_what_the_server_has(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    await client.login(EMAIL, PASSWORD)
-    await client.create_item("GitHub", "rafael", password="K7#mQ2vX!pL9")
-    await client.create_item("Router", "admin", password="hunter2")
-    await client.close()
+async def test_a_session_for_another_server_is_not_replayed(server, config_dir):
+    """The address changed in the environment, so the token means nothing."""
+    session.save(
+        session.StoredSession(
+            base_url="http://somewhere-else:8000",
+            token="a token from another installation",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            email=EMAIL,
+        )
+    )
 
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        assert isinstance(app.screen, LoginScreen)
+        assert session.load() is None
+
+
+# --- the list -----------------------------------------------------------------
+
+
+async def test_the_list_shows_what_the_server_has(server, config_dir):
+    await seed(
+        server,
+        ("GitHub", "rafael", "K7#mQ2vX!pL9", None),
+        ("Router", "admin", "hunter2", None),
+    )
+
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, app)
 
-        table = app.screen.query_one("#items", DataTable)
-
-        assert table.row_count == 2
+        assert table(app).row_count == 2
 
         app.screen.query_one("#search", Input).value = "rout"
         await settle(pilot)
 
-        assert table.row_count == 1
+        assert table(app).row_count == 1
 
 
-async def test_the_password_typed_at_sign_in_is_the_one_reveal_uses(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    await client.login(EMAIL, PASSWORD)
-    await client.create_item("GitHub", "rafael", password="K7#mQ2vX!pL9", notes="in the safe")
-    await client.close()
+async def test_the_list_never_carries_a_password(server, config_dir):
+    await seed(server, ("GitHub", "rafael", "K7#mQ2vX!pL9", None))
 
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, app)
 
-        app.screen.query_one("#items", DataTable).focus()
+        assert "K7#mQ2vX!pL9" not in shown_password(app)
+
+
+# --- revealing ----------------------------------------------------------------
+
+
+async def test_the_password_typed_at_sign_in_is_the_one_reveal_uses(server, config_dir):
+    await seed(server, ("GitHub", "rafael", "K7#mQ2vX!pL9", "in the safe"))
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
 
         await pilot.press("r")
         await settle(pilot)
 
-        assert isinstance(app.screen, ShowSecrets)
-        assert shown_password(app) == "K7#mQ2vX!pL9"
-
-        await pilot.press("escape")
-        await settle(pilot)
+        assert "K7#mQ2vX!pL9" in shown_password(app)
 
         # The second reveal asks for nothing: this is the whole point of the
         # app having a screen instead of being a one-shot command.
         await pilot.press("r")
         await settle(pilot)
 
-        assert isinstance(app.screen, ShowSecrets)
         assert server.reveal_calls == 2
+        assert not app.screen.query(AskPassword)
+
+
+async def test_moving_the_cursor_puts_the_password_away(server, config_dir):
+    await seed(
+        server,
+        ("GitHub", "rafael", "K7#mQ2vX!pL9", None),
+        ("Router", "admin", "hunter2", None),
+    )
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+
+        await pilot.press("r")
+        await settle(pilot)
+
+        assert "K7#mQ2vX!pL9" in shown_password(app)
+
+        await pilot.press("down")
+        await settle(pilot)
+
+        assert "K7#mQ2vX!pL9" not in shown_password(app)
 
 
 async def test_forgetting_the_password_makes_the_next_reveal_ask(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    await client.login(EMAIL, PASSWORD)
-    await client.create_item("GitHub", password="K7#mQ2vX!pL9")
-    await client.close()
+    await seed(server, ("GitHub", None, "K7#mQ2vX!pL9", None))
 
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
@@ -133,8 +212,6 @@ async def test_forgetting_the_password_makes_the_next_reveal_ask(server, config_
         await settle(pilot)
 
         assert app.account_password is None
-
-        app.screen.query_one("#items", DataTable).focus()
 
         await pilot.press("r")
         await settle(pilot)
@@ -148,7 +225,7 @@ async def test_forgetting_the_password_makes_the_next_reveal_ask(server, config_
 
         # A wrong one is not kept, or every later reveal would fail against a
         # password nobody typed again.
-        assert isinstance(app.screen, ItemsScreen)
+        assert isinstance(app.screen, MainScreen)
         assert app.account_password is None
 
         await pilot.press("r")
@@ -159,34 +236,32 @@ async def test_forgetting_the_password_makes_the_next_reveal_ask(server, config_
         await pilot.click("#unlock")
         await settle(pilot)
 
-        assert isinstance(app.screen, ShowSecrets)
-        assert shown_password(app) == "K7#mQ2vX!pL9"
+        assert isinstance(app.screen, MainScreen)
+        assert "K7#mQ2vX!pL9" in shown_password(app)
 
 
 async def test_reopening_keeps_the_session_and_forgets_the_password(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    await client.login(EMAIL, PASSWORD)
-    await client.create_item("GitHub", password="K7#mQ2vX!pL9")
-    await client.close()
+    await seed(server, ("GitHub", None, "K7#mQ2vX!pL9", None))
 
-    first = NapmApp(base_url="http://localhost:8000")
+    first = NapmApp(base_url=BASE)
 
     async with first.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, first)
 
-    assert session.load() is not None
+    stored = session.load()
 
-    again = NapmApp(base_url="http://localhost:8000")
+    assert stored is not None
+    assert stored.email == EMAIL
+
+    again = NapmApp(base_url=BASE)
 
     async with again.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
 
         # The token was on disk, so no login screen...
-        assert isinstance(again.screen, ItemsScreen)
+        assert isinstance(again.screen, MainScreen)
         assert again.account_password is None
-
-        again.screen.query_one("#items", DataTable).focus()
 
         await pilot.press("r")
         await settle(pilot)
@@ -195,48 +270,11 @@ async def test_reopening_keeps_the_session_and_forgets_the_password(server, conf
         assert isinstance(again.screen, AskPassword)
 
 
-async def test_signing_out_drops_the_stored_session(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-        await sign_in(pilot, app)
-
-        await pilot.press("ctrl+o")
-        await settle(pilot)
-
-        assert isinstance(app.screen, LoginScreen)
-        assert app.account_password is None
-        assert session.load() is None
-
-
-async def test_an_expired_token_sends_you_back_to_the_login_screen(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    opened = await client.login(EMAIL, PASSWORD)
-    await client.close()
-
-    session.save(
-        session.StoredSession(
-            base_url="http://localhost:8000",
-            token=opened.token,
-            expires_at=opened.expires_at,
-        )
-    )
-
-    # Killed on the server while the file on disk still looks fine.
-    server.tokens.clear()
-
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-
-        assert isinstance(app.screen, LoginScreen)
-        assert session.load() is None
+# --- writing ------------------------------------------------------------------
 
 
 async def test_creating_an_item_shows_the_password_the_server_drew(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
@@ -252,22 +290,17 @@ async def test_creating_an_item_shows_the_password_the_server_drew(server, confi
         await settle(pilot)
 
         assert isinstance(app.screen, ShowSecrets)
-        assert len(shown_password(app)) == 20
+        assert len(str(app.screen.query_one("#password", Static).content)) == 20
 
 
 async def test_deleting_asks_first(server, config_dir):
-    client = api.Client("http://localhost:8000")
-    await client.login(EMAIL, PASSWORD)
-    await client.create_item("GitHub", password="K7#mQ2vX!pL9")
-    await client.close()
+    await seed(server, ("GitHub", None, "K7#mQ2vX!pL9", None))
 
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, app)
-
-        app.screen.query_one("#items", DataTable).focus()
 
         await pilot.press("d")
         await settle(pilot)
@@ -286,103 +319,172 @@ async def test_deleting_asks_first(server, config_dir):
         assert server.items == {}
 
 
-async def test_the_confirm_field_belongs_to_registering_only(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-
-        assert not app.screen.query_one("#confirm", Input).display
-
-        await pilot.click("Tab#register")
-        await settle(pilot)
-
-        assert app.screen.query_one("#confirm", Input).display
+# --- the sidebar --------------------------------------------------------------
 
 
-async def test_creating_an_account_signs_you_straight_in(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-
-        await pilot.click("Tab#register")
-        await settle(pilot)
-
-        app.screen.query_one("#email", Input).value = "someone@example.com"
-        app.screen.query_one("#password", Input).value = "a brand new password"
-        app.screen.query_one("#confirm", Input).value = "a brand new password"
-
-        await pilot.click("#submit")
-        await settle(pilot)
-
-        assert isinstance(app.screen, ItemsScreen)
-        assert server.users["someone@example.com"] == "a brand new password"
-
-
-async def test_two_different_passwords_never_reach_the_server(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-
-        await pilot.click("Tab#register")
-        await settle(pilot)
-
-        app.screen.query_one("#email", Input).value = "someone@example.com"
-        app.screen.query_one("#password", Input).value = "one thing"
-        app.screen.query_one("#confirm", Input).value = "another thing"
-
-        await pilot.click("#submit")
-        await settle(pilot)
-
-        assert isinstance(app.screen, LoginScreen)
-        assert "do not match" in str(app.screen.query_one("#status", Static).content)
-        assert "someone@example.com" not in server.users
-
-
-async def test_registering_a_taken_email_says_so_on_the_screen(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await settle(pilot)
-
-        await pilot.click("Tab#register")
-        await settle(pilot)
-
-        app.screen.query_one("#email", Input).value = EMAIL
-        app.screen.query_one("#password", Input).value = PASSWORD
-        app.screen.query_one("#confirm", Input).value = PASSWORD
-
-        await pilot.click("#submit")
-        await settle(pilot)
-
-        assert isinstance(app.screen, LoginScreen)
-        assert "already has an account" in str(app.screen.query_one("#status", Static).content)
-
-
-async def test_the_header_says_which_account_on_which_server(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
+async def test_the_menu_switches_panes(server, config_dir):
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, app)
 
-        assert app.sub_title == f"{EMAIL} · localhost:8000"
+        switcher = app.screen.query_one("#main", ContentSwitcher)
+
+        assert switcher.current == "passwords"
+
+        app.screen.query_one("#nav", ListView).focus()
+        await pilot.press("down")
+        await settle(pilot)
+
+        assert switcher.current == "account"
 
 
 async def test_the_meters_say_whether_a_reveal_will_ask(server, config_dir):
-    app = NapmApp(base_url="http://localhost:8000")
+    app = NapmApp(base_url=BASE)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await settle(pilot)
         await sign_in(pilot, app)
 
-        reveal_meter = app.screen.query_one("#meter-reveal", Static)
+        meter = app.screen.query_one("#meter-reveal", Static)
 
-        assert "no prompt" in str(reveal_meter.content)
+        assert "no prompt" in str(meter.content)
 
         await pilot.press("ctrl+l")
         await settle(pilot)
 
-        assert "asks first" in str(reveal_meter.content)
+        assert "asks first" in str(meter.content)
+
+
+async def test_the_meters_count_what_the_list_holds(server, config_dir):
+    await seed(
+        server,
+        ("GitHub", None, "one", None),
+        ("Router", None, "two", None),
+    )
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+
+        assert app.screen.query_one(ItemsPane).total == 2
+        assert "2" in str(app.screen.query_one("#meter-items", Static).content)
+
+
+# --- the account pane ---------------------------------------------------------
+
+
+async def go_to_account(pilot, app):
+    app.screen.query_one("#nav", ListView).focus()
+    await pilot.press("down")
+    await settle(pilot)
+
+
+async def test_changing_the_account_password_sends_you_back_to_the_login_screen(
+    server,
+    config_dir,
+):
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+        await go_to_account(pilot, app)
+
+        app.screen.query_one("#current-password", Input).value = PASSWORD
+        app.screen.query_one("#new-password", Input).value = "a longer better password"
+        app.screen.query_one("#confirm-password", Input).value = "a longer better password"
+
+        await pilot.click("#change")
+        await settle(pilot)
+
+        assert isinstance(app.screen, LoginScreen)
+        assert session.load() is None
+        assert app.account_password is None
+        assert server.users[EMAIL] == "a longer better password"
+
+
+async def test_two_different_new_passwords_never_reach_the_server(server, config_dir):
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+        await go_to_account(pilot, app)
+
+        app.screen.query_one("#current-password", Input).value = PASSWORD
+        app.screen.query_one("#new-password", Input).value = "one thing"
+        app.screen.query_one("#confirm-password", Input).value = "another thing"
+
+        await pilot.click("#change")
+        await settle(pilot)
+
+        assert isinstance(app.screen, MainScreen)
+        assert "do not match" in str(app.screen.query_one("#account-status", Static).content)
+        assert server.users[EMAIL] == PASSWORD
+
+
+async def test_a_wrong_current_password_changes_nothing(server, config_dir):
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+        await go_to_account(pilot, app)
+
+        app.screen.query_one("#current-password", Input).value = "not the password"
+        app.screen.query_one("#new-password", Input).value = "a longer better password"
+        app.screen.query_one("#confirm-password", Input).value = "a longer better password"
+
+        await pilot.click("#change")
+        await settle(pilot)
+
+        assert isinstance(app.screen, MainScreen)
+        assert server.users[EMAIL] == PASSWORD
+
+
+# --- signing out --------------------------------------------------------------
+
+
+async def test_signing_out_drops_the_stored_session(server, config_dir):
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+        await sign_in(pilot, app)
+
+        await pilot.press("ctrl+o")
+        await settle(pilot)
+
+        assert isinstance(app.screen, LoginScreen)
+        assert app.account_password is None
+        assert session.load() is None
+
+
+async def test_an_expired_token_sends_you_back_to_the_login_screen(server, config_dir):
+    client = api.Client(BASE)
+    opened = await client.login(EMAIL, PASSWORD)
+    await client.close()
+
+    session.save(
+        session.StoredSession(
+            base_url=BASE,
+            token=opened.token,
+            expires_at=opened.expires_at,
+            email=EMAIL,
+        )
+    )
+
+    # Killed on the server while the file on disk still looks fine.
+    server.tokens.clear()
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        assert isinstance(app.screen, LoginScreen)
+        assert session.load() is None

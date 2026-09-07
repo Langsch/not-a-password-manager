@@ -1,8 +1,11 @@
 """Signing in, and creating the account the first time.
 
 The two are one card with a mode, not two buttons side by side: they ask for
-almost the same thing, and a screen that offers both at once leaves you
-guessing which one you are about to do.
+almost the same thing, and a screen offering both at once leaves you guessing
+which one you are about to do.
+
+There is no field for the server. It comes from the environment before the app
+starts — see `napm.config`.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Static, Tab, Tabs
 
 from napm import api, errors, session
+from napm.art import WORDMARK
 
 if TYPE_CHECKING:
     from napm.app import NapmApp
@@ -42,7 +46,7 @@ class LoginScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="login-frame"), Vertical(id="login-card"):
-            yield Static("not-a-password-manager", classes="brand")
+            yield Static(WORDMARK, id="login-art")
             yield Static(TAGLINE, classes="brand-tagline")
 
             yield Tabs(
@@ -51,7 +55,6 @@ class LoginScreen(Screen[None]):
                 id="mode",
             )
 
-            yield Input(value=self.base_url, id="base-url")
             yield Input(value=self.email, id="email")
             yield Input(password=True, id="password")
             yield Input(password=True, id="confirm")
@@ -68,7 +71,6 @@ class LoginScreen(Screen[None]):
     def on_mount(self) -> None:
         # Border titles rather than separate labels: same information, three
         # fewer rows, which is what lets the card fit a 24-row terminal.
-        self.query_one("#base-url", Input).border_title = "Server"
         self.query_one("#email", Input).border_title = "Email"
         self.query_one("#password", Input).border_title = "Password"
         self.query_one("#confirm", Input).border_title = "Confirm password"
@@ -117,12 +119,11 @@ class LoginScreen(Screen[None]):
         self.attempt()
 
     def attempt(self) -> None:
-        base_url = self.query_one("#base-url", Input).value.strip()
         email = self.query_one("#email", Input).value.strip()
         password = self.query_one("#password", Input).value
 
-        if not base_url or not email or not password:
-            self.say("Fill in the server, the email and the password.")
+        if not email or not password:
+            self.say("Fill in the email and the password.")
             return
 
         if self.mode == REGISTER:
@@ -133,7 +134,7 @@ class LoginScreen(Screen[None]):
                 self.query_one("#confirm", Input).focus()
                 return
 
-        self.authenticate(base_url, email, password, self.mode == REGISTER)
+        self.authenticate(email, password, self.mode == REGISTER)
 
     def say(self, message: str) -> None:
         self.query_one("#status", Static).update(message)
@@ -143,19 +144,13 @@ class LoginScreen(Screen[None]):
         self.query_one("#mode", Tabs).disabled = busy
 
     @work(exclusive=True)
-    async def authenticate(
-        self,
-        base_url: str,
-        email: str,
-        password: str,
-        create_account: bool,
-    ) -> None:
+    async def authenticate(self, email: str, password: str, create_account: bool) -> None:
         app = cast("NapmApp", self.app)
 
         self.set_busy(True)
         self.say("Talking to the server…")
 
-        client = api.Client(base_url)
+        client = api.Client(self.base_url)
 
         try:
             if create_account:
@@ -171,9 +166,10 @@ class LoginScreen(Screen[None]):
             return
 
         stored = session.StoredSession(
-            base_url=base_url,
+            base_url=self.base_url,
             token=opened.token,
             expires_at=opened.expires_at,
+            email=email,
         )
 
         session.save(stored)

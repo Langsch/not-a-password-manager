@@ -12,19 +12,20 @@ import contextlib
 from textual.app import App
 
 from napm import api, errors, session
-from napm.screens.items import ItemsScreen
 from napm.screens.login import LoginScreen
+from napm.screens.main import MainScreen
 from napm.screens.modals import HELD_IN_MEMORY, AskPassword
 
 
 class NapmApp(App[None]):
     CSS_PATH = "napm.tcss"
-    TITLE = "not-a-password-manager"
+    TITLE = "napm"
 
-    def __init__(self, base_url: str | None = None) -> None:
+    def __init__(self, base_url: str) -> None:
         super().__init__()
 
-        self.requested_base_url = base_url
+        self.base_url = base_url
+        self.email = ""
         self.account_password: str | None = None
         self._client: api.Client | None = None
 
@@ -39,24 +40,22 @@ class NapmApp(App[None]):
         stored = session.load()
 
         if stored is None:
-            self.push_screen(LoginScreen(self.requested_base_url or session.DEFAULT_BASE_URL))
+            self.push_screen(LoginScreen(self.base_url))
             return
 
-        # A token is only good against the server that issued it, so asking for
-        # a different address means signing in again rather than replaying it.
-        if self.requested_base_url is not None and self.requested_base_url != stored.base_url:
-            self.push_screen(LoginScreen(self.requested_base_url))
-            return
-
-        if stored.is_expired():
+        # A token is only good against the server that issued it, so a change
+        # of address in the environment means signing in again rather than
+        # replaying it somewhere it means nothing.
+        if stored.base_url != self.base_url or stored.is_expired():
             session.clear()
-            self.push_screen(LoginScreen(stored.base_url))
+            self.push_screen(LoginScreen(self.base_url, email=stored.email))
             return
 
         self._client = api.Client(stored.base_url, token=stored.token)
+        self.email = stored.email
+        self.sub_title = stored.email
 
-        self.show_where(stored.base_url)
-        self.push_screen(ItemsScreen())
+        self.push_screen(MainScreen())
 
     async def on_unmount(self) -> None:
         self.account_password = None
@@ -69,20 +68,11 @@ class NapmApp(App[None]):
             await self._client.close()
 
         self._client = client
+        self.email = email
+        self.sub_title = email
         self.account_password = account_password
 
-        self.show_where(client.base_url, email)
-        self.switch_screen(ItemsScreen())
-
-    def show_where(self, base_url: str, email: str = "") -> None:
-        """The header says which account on which server, so two open windows
-        against two servers are never confused for one another."""
-        address = base_url.removeprefix("https://").removeprefix("http://")
-
-        if email:
-            self.sub_title = f"{email} · {address}"
-        else:
-            self.sub_title = address
+        self.switch_screen(MainScreen())
 
     async def reveal(self, item: api.Item) -> api.Secrets | None:
         """The account password, asked once and then remembered until close."""
@@ -130,17 +120,17 @@ class NapmApp(App[None]):
             await self._client.close()
             self._client = None
 
-        base_url = session.DEFAULT_BASE_URL
-        stored = session.load()
+        self.back_to_login()
 
-        if stored is not None:
-            base_url = stored.base_url
+    async def password_changed(self) -> None:
+        """The server dropped every session, including the one in hand."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
-        session.clear()
-        self.account_password = None
-        self.sub_title = ""
+        self.back_to_login()
 
-        self.switch_screen(LoginScreen(base_url))
+        self.notify("Password changed. Sign in again.")
 
     async def report(self, failure: errors.ApiError) -> None:
         """What a screen does with a failure it cannot handle itself."""
@@ -151,18 +141,21 @@ class NapmApp(App[None]):
         self.notify(failure.message, severity="error")
 
     async def expire_session(self) -> None:
-        base_url = session.DEFAULT_BASE_URL
-        stored = session.load()
-
-        if stored is not None:
-            base_url = stored.base_url
-
-        session.clear()
-        self.account_password = None
-
         if self._client is not None:
             await self._client.close()
             self._client = None
 
-        self.switch_screen(LoginScreen(base_url))
+        self.back_to_login()
+
         self.notify("Your session expired. Sign in again.", severity="warning")
+
+    def back_to_login(self) -> None:
+        email = self.email
+
+        session.clear()
+
+        self.account_password = None
+        self.email = ""
+        self.sub_title = ""
+
+        self.switch_screen(LoginScreen(self.base_url, email=email))

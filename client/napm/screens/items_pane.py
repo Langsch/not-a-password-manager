@@ -1,89 +1,93 @@
-"""The list: search it, and act on the row under the cursor."""
+"""The passwords pane: search, the list, and the item under the cursor."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Input, Static
+from textual.widgets import DataTable, Input, Static
 from textual.widgets.data_table import ColumnKey
 
-from napm import api, errors, session
-from napm.screens.modals import Confirm, ItemDraft, ItemForm, ShowSecrets
+from napm import api, errors
+from napm.screens.modals import Confirm, ItemDraft, ItemForm, ShowSecrets, copy_password
 
 if TYPE_CHECKING:
     from napm.app import NapmApp
+    from napm.screens.main import MainScreen
 
 PER_PAGE = 50
 
-# How the three columns share whatever width the terminal gives us.
-COLUMN_SHARES = {"name": 0.38, "username": 0.24, "url": 0.38}
+# How the two columns share whatever width the terminal gives the pane.
+COLUMN_SHARES = {"name": 0.55, "username": 0.45}
+
+HIDDEN = "•" * 20
+NOT_REVEALED = "Hidden until you reveal."
 
 
-class ItemsScreen(Screen[None]):
-    # Only the seven that fit a narrow footer are shown; the rest are still
-    # bound, and the command palette lists them.
+class ItemsPane(Vertical):
     BINDINGS = [
         Binding("r", "reveal", "Reveal"),
         Binding("n", "new", "New"),
         Binding("e", "edit", "Edit"),
         Binding("g", "rotate", "Rotate"),
         Binding("d", "delete", "Delete"),
-        Binding("slash", "search", "Search"),
-        Binding("ctrl+o", "sign_out", "Sign out"),
+        Binding("slash", "search", "Search", show=False),
+        Binding("c", "copy", "Copy"),
         Binding("left", "previous_page", "Previous page", show=False),
         Binding("right", "next_page", "Next page", show=False),
         Binding("ctrl+r", "reload", "Refresh", show=False),
-        Binding("ctrl+l", "lock", "Forget the account password", show=False),
-        Binding("ctrl+q", "quit", "Quit", show=False),
     ]
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, id: str) -> None:
+        super().__init__(id=id)
 
         self.rows: list[api.Item] = []
         self.page = 1
         self.pages = 1
         self.total = 0
         self.search_text = ""
+        self.revealed: api.Secrets | None = None
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield Input(placeholder="Search name or username…", id="search")
+        yield DataTable(id="items", cursor_type="row", zebra_stripes=True)
 
-        with Vertical(id="body"):
-            with Horizontal(id="meters"):
-                yield Static(id="meter-items", classes="meter")
-                yield Static(id="meter-page", classes="meter")
-                yield Static(id="meter-session", classes="meter")
-                yield Static(id="meter-reveal", classes="meter")
+        with Vertical(id="detail"):
+            yield Static("", id="detail-name")
 
-            yield Input(placeholder="Type to search name or username…", id="search")
-            yield DataTable(id="items", cursor_type="row", zebra_stripes=True)
-            yield Static("", id="status", classes="status-line")
+            with Horizontal(id="detail-cards"):
+                with Vertical(id="password-card", classes="card"):
+                    yield Static("", id="detail-password")
 
-        yield Footer()
+                with Vertical(id="notes-card", classes="card"):
+                    yield Static("", id="detail-notes")
 
     def on_mount(self) -> None:
         self.query_one("#search", Input).border_title = "Search"
+        self.query_one("#password-card").border_title = "Password"
+        self.query_one("#notes-card").border_title = "Notes"
 
         table = self.query_one("#items", DataTable)
 
         table.add_column("NAME", key="name")
         table.add_column("USERNAME", key="username")
-        table.add_column("URL", key="url")
 
-        table.focus()
-
-        self.update_meters()
+        self.draw_detail()
         self.reload()
+
+        # The table, not the search box: the pane's bindings only reach the
+        # footer while the focus is somewhere they apply, and an Input eats
+        # every letter they are bound to.
+        self.take_focus()
 
     def on_resize(self) -> None:
         self.fit_columns()
+
+    def take_focus(self) -> None:
+        self.query_one("#items", DataTable).focus()
 
     # --- events -------------------------------------------------------------
 
@@ -96,7 +100,15 @@ class ItemsScreen(Screen[None]):
 
     @on(Input.Submitted, "#search")
     def search_submitted(self) -> None:
-        self.query_one("#items", DataTable).focus()
+        self.take_focus()
+
+    @on(DataTable.RowHighlighted, "#items")
+    def row_highlighted(self) -> None:
+        # A revealed password belongs to the row it came from, and nothing
+        # else. Moving the cursor puts it away.
+        self.revealed = None
+
+        self.draw_detail()
 
     @on(DataTable.RowSelected, "#items")
     def row_selected(self) -> None:
@@ -121,15 +133,16 @@ class ItemsScreen(Screen[None]):
         self.page += 1
         self.reload()
 
-    def action_lock(self) -> None:
-        app = cast("NapmApp", self.app)
+    def action_copy(self) -> None:
+        if self.revealed is None:
+            self.notify("Nothing revealed to copy.", severity="warning")
+            return
 
-        app.forget_password()
+        self.copy(self.revealed.password)
 
-        self.update_meters()
-
-    def action_sign_out(self) -> None:
-        self.sign_out()
+    @work(group="clipboard")
+    async def copy(self, password: str) -> None:
+        await copy_password(self, password)
 
     def action_reveal(self) -> None:
         item = self.selected_item()
@@ -195,12 +208,14 @@ class ItemsScreen(Screen[None]):
 
         secrets = await app.reveal(item)
 
-        self.update_meters()
+        self.tell_the_screen()
 
         if secrets is None:
             return
 
-        await self.app.push_screen_wait(ShowSecrets(item, secrets))
+        self.revealed = secrets
+
+        self.draw_detail()
 
     @work(group="action")
     async def create(self) -> None:
@@ -229,16 +244,7 @@ class ItemsScreen(Screen[None]):
             return
 
         self.reload()
-
-        if created.password is None:
-            self.notify(f"Created {created.name}.")
-            return
-
-        # It came back only because the server drew it, and this is the one
-        # moment it is on screen without a reveal.
-        secrets = api.Secrets(password=created.password, notes=None)
-
-        await self.app.push_screen_wait(ShowSecrets(created, secrets))
+        await self.announce(created)
 
     @work(group="action")
     async def edit(self, item: api.Item) -> None:
@@ -271,23 +277,14 @@ class ItemsScreen(Screen[None]):
         if not agreed:
             return
 
-        changes = api.ItemChanges(generate_password=True)
-
         try:
-            rotated = await app.client.update_item(item.id, changes)
+            rotated = await app.client.update_item(item.id, api.ItemChanges(generate_password=True))
         except errors.ApiError as failure:
             await app.report(failure)
             return
 
         self.reload()
-
-        if rotated.password is None:
-            self.notify("Rotated.")
-            return
-
-        secrets = api.Secrets(password=rotated.password, notes=None)
-
-        await self.app.push_screen_wait(ShowSecrets(rotated, secrets))
+        await self.announce(rotated)
 
     @work(group="action")
     async def delete(self, item: api.Item) -> None:
@@ -309,13 +306,28 @@ class ItemsScreen(Screen[None]):
         self.notify(f"Deleted {item.name}.")
         self.reload()
 
-    @work(group="action")
-    async def sign_out(self) -> None:
-        app = cast("NapmApp", self.app)
-
-        await app.sign_out()
-
     # --- helpers ------------------------------------------------------------
+
+    async def announce(self, item: api.Item) -> None:
+        """A password the server just drew.
+
+        This one gets a modal rather than the detail panel: it is not a reveal
+        of something stored, it is the only moment a brand new password is on
+        screen, and the panel belongs to whichever row the cursor is on — which
+        after a reload is not necessarily this one.
+        """
+        if item.password is None:
+            self.notify(f"Saved {item.name}.")
+            return
+
+        secrets = api.Secrets(password=item.password, notes=None)
+
+        await self.app.push_screen_wait(ShowSecrets(item, secrets))
+
+    def tell_the_screen(self) -> None:
+        screen = cast("MainScreen", self.screen)
+
+        screen.refresh_meters()
 
     def selected_item(self) -> api.Item | None:
         table = self.query_one("#items", DataTable)
@@ -355,17 +367,17 @@ class ItemsScreen(Screen[None]):
         table.clear()
 
         for item in page.items:
-            table.add_row(item.name, item.username or "—", item.url or "—")
+            table.add_row(item.name, item.username or "—")
 
         if page.items:
             table.move_cursor(row=min(cursor, len(page.items) - 1))
 
         self.fit_columns()
-        self.update_meters()
-        self.query_one("#status", Static).update(self.summary())
+        self.draw_detail()
+        self.tell_the_screen()
 
     def fit_columns(self) -> None:
-        """Share the terminal's width between the columns.
+        """Share the pane's width between the columns.
 
         A `DataTable` sizes its columns to their content, so on a wide terminal
         the rows would end halfway across and leave the stripes hanging.
@@ -373,7 +385,7 @@ class ItemsScreen(Screen[None]):
         table = self.query_one("#items", DataTable)
 
         # Two cells of padding each, plus the row cursor's own column.
-        available = max(table.size.width - 8, 30)
+        available = max(table.size.width - 6, 30)
 
         for key, share in COLUMN_SHARES.items():
             column = table.columns.get(ColumnKey(key))
@@ -381,48 +393,54 @@ class ItemsScreen(Screen[None]):
             if column is None:
                 continue
 
-            column.width = max(int(available * share), 10)
+            column.width = max(int(available * share), 12)
             column.auto_width = False
 
         table.refresh()
 
-    def update_meters(self) -> None:
-        app = cast("NapmApp", self.app)
+    def draw_detail(self) -> None:
+        item = self.selected_item()
 
-        self.meter("#meter-items", "ITEMS", str(self.total))
-        self.meter("#meter-page", "PAGE", f"{self.page} of {self.pages}")
-        self.meter("#meter-session", "SESSION", self.session_left())
+        name = self.query_one("#detail-name", Static)
+        password = self.query_one("#detail-password", Static)
+        notes = self.query_one("#detail-notes", Static)
 
-        if app.account_password is None:
-            self.meter("#meter-reveal", "REVEAL", "[$warning]asks first[/]")
+        if item is None:
+            name.update(self.nothing_to_show())
+            password.update("")
+            notes.update("")
+            return
+
+        name.update(self.heading(item))
+
+        if self.revealed is None:
+            password.update(f"[$text-muted]{HIDDEN}   press r[/]")
+            notes.update(f"[$text-muted]{NOT_REVEALED}[/]")
+            return
+
+        password.update(f"[b $accent]{self.revealed.password}[/]")
+
+        if self.revealed.notes:
+            notes.update(self.revealed.notes)
         else:
-            self.meter("#meter-reveal", "REVEAL", "[$success]no prompt[/]")
+            notes.update("[$text-muted]No notes stored.[/]")
 
-    def meter(self, selector: str, label: str, value: str) -> None:
-        self.query_one(selector, Static).update(f"[$text-muted]{label}[/]\n[b]{value}[/]")
+    def heading(self, item: api.Item) -> str:
+        parts = []
 
-    def session_left(self) -> str:
-        stored = session.load()
+        if item.username:
+            parts.append(item.username)
 
-        if stored is None:
-            return "—"
+        if item.url:
+            parts.append(item.url)
 
-        left = stored.expires_at - datetime.now(UTC)
-        hours = int(left.total_seconds() // 3600)
+        if not parts:
+            return f"[b $accent]{item.name}[/]"
 
-        if hours < 1:
-            return "under an hour"
+        return f"[b $accent]{item.name}[/]  [$text-muted]{' · '.join(parts)}[/]"
 
-        if hours < 48:
-            return f"{hours} h"
-
-        return f"{hours // 24} days"
-
-    def summary(self) -> str:
-        if self.total > 0:
-            return ""
-
+    def nothing_to_show(self) -> str:
         if self.search_text:
-            return f"Nothing matches “{self.search_text}”."
+            return f"[$text-muted]Nothing matches “{self.search_text}”.[/]"
 
-        return "No items yet. Press n to add one."
+        return "[$text-muted]No items yet. Press n to add one.[/]"

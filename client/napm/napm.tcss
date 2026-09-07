@@ -1,6 +1,6 @@
 /* One vocabulary for the whole app: $primary draws the frames, $accent names
    things, $text-muted labels them, and nothing else carries colour unless it
-   is saying something — a held password, a warning, a deletion. */
+   is saying something — a revealed password, a warning, a deletion. */
 
 Screen {
     layout: vertical;
@@ -36,11 +36,6 @@ Input:focus {
     max-height: 100%;
 }
 
-.card-heading {
-    text-style: bold;
-    color: $accent;
-}
-
 .hint {
     color: $text-muted;
     padding-bottom: 1;
@@ -69,8 +64,6 @@ Input:focus {
     height: 1fr;
 }
 
-/* Signing in fits a 24-row terminal; creating an account has one field more
-   and scrolls there rather than shrinking the card everywhere else. */
 #login-card {
     width: 58;
     height: auto;
@@ -81,13 +74,14 @@ Input:focus {
     padding: 1 2;
 }
 
-.brand {
-    text-style: bold;
+#login-art {
     color: $accent;
+    height: auto;
 }
 
 .brand-tagline {
     color: $text-muted;
+    padding-top: 1;
 }
 
 #mode {
@@ -98,31 +92,64 @@ Input:focus {
     padding-top: 0;
 }
 
-/* --- the list ----------------------------------------------------------- */
+/* --- the sidebar -------------------------------------------------------- */
 
 #body {
     height: 1fr;
-    padding: 1 2;
-    overflow: hidden;
 }
 
-#meters {
-    width: 1fr;
-    height: 4;
-    border: round $primary;
+#sidebar {
+    width: 28;
+    border-right: solid $primary;
+    padding: 1 1 0 2;
+}
+
+#art {
+    color: $accent;
+    height: auto;
+    padding-bottom: 1;
+}
+
+.side-label {
+    color: $text-muted;
+    text-style: bold;
+    padding: 1 0 0 1;
+}
+
+#nav {
+    background: transparent;
+    height: auto;
+}
+
+#nav > ListItem {
+    background: transparent;
     padding: 0 1;
 }
 
+#nav > ListItem.--highlight {
+    background: $primary;
+    text-style: bold;
+}
+
+#meters {
+    dock: bottom;
+    height: auto;
+    padding: 0 0 1 1;
+}
+
 .meter {
-    width: 1fr;
-    height: 2;
-    content-align: center middle;
-    text-align: center;
+    height: 1;
+}
+
+/* --- the passwords pane ------------------------------------------------- */
+
+#main {
+    height: 1fr;
+    padding: 1 2;
 }
 
 #search {
     width: 1fr;
-    margin-top: 1;
 }
 
 #items {
@@ -138,14 +165,45 @@ Input:focus {
     text-style: bold;
 }
 
-#items > .datatable--cursor {
-    background: $primary;
-    color: $text;
-    text-style: bold;
+/* Six rows: a heading and one row of cards. The table above keeps whatever is
+   left, so the pane still shows a useful list on a 24-row terminal. */
+#detail {
+    dock: bottom;
+    height: 6;
+    padding-top: 1;
 }
 
-ItemsScreen .status-line {
-    height: auto;
+#detail-name {
+    height: 1;
+}
+
+#detail-cards {
+    height: 5;
+}
+
+#password-card {
+    width: 3fr;
+    height: 3;
+    margin-right: 2;
+    padding: 0 2;
+}
+
+#notes-card {
+    width: 2fr;
+    height: 3;
+    padding: 0 2;
+}
+
+/* --- the account pane --------------------------------------------------- */
+
+#account-card,
+#session-card {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#signed-in-as {
+    padding-bottom: 1;
 }
 
 /* --- the small screens -------------------------------------------------- */
@@ -166,16 +224,20 @@ ItemsScreen .status-line {
     max-height: 26;
 }
 
-#confirm-card {
-    width: 60;
-}
-
 #form-fields {
     height: 1fr;
 }
 
-/* The one place a stored password is on screen: framed, and the only thing
-   on the card wearing the accent colour. */
+#confirm-card {
+    width: 60;
+}
+
+.card-heading {
+    text-style: bold;
+    color: $accent;
+}
+
+/* The one place a stored password is on screen inside a modal. */
 .secret {
     border: round $accent;
     border-title-color: $accent;
@@ -191,5 +253,5 @@ ItemsScreen .status-line {
     padding: 0 2;
     margin-top: 1;
     height: auto;
-    max-height: 7;
+    max-height: 5;
 }

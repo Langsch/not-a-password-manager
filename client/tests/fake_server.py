@@ -56,6 +56,9 @@ class FakeServer:
         if path == "/auth/logout" and method == "POST":
             return self.logout(request)
 
+        if path == "/account/password" and method == "PUT":
+            return self.change_password(request)
+
         if path == "/items" and method == "GET":
             return self.list_items(request)
 
@@ -146,6 +149,29 @@ class FakeServer:
 
         header = request.headers["Authorization"].removeprefix("Bearer ")
         self.tokens.pop(header, None)
+
+        return httpx.Response(204)
+
+    def change_password(self, request):
+        email = self.caller(request)
+
+        if email is None:
+            return _envelope(401, "UNAUTHENTICATED", "Missing, unknown or expired token.")
+
+        body = self.body(request)
+
+        if body is None or "current_password" not in body or "new_password" not in body:
+            return _envelope(422, "VALIDATION_ERROR", "Missing field.")
+
+        if self.users.get(email) != body["current_password"]:
+            return _envelope(401, "INVALID_CREDENTIALS", "Wrong email or password.")
+
+        self.users[email] = body["new_password"]
+
+        # Every session goes, the caller's included.
+        for token, owner in list(self.tokens.items()):
+            if owner == email:
+                del self.tokens[token]
 
         return httpx.Response(204)
 

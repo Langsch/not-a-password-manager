@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from textual import on
+from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Input, Static
 
 from napm.api import Item, Secrets
 
 HELD_IN_MEMORY = "Held in memory until you close the app. Never written to disk."
+
+
+async def copy_password(widget: Widget, password: str) -> None:
+    widget.app.copy_to_clipboard(password)
+    widget.notify("Password copied.")
 
 
 class AskPassword(ModalScreen[str | None]):
@@ -128,10 +134,11 @@ class ShowSecrets(ModalScreen[None]):
         self.action_close()
 
     def action_copy(self) -> None:
-        # Textual copies through the terminal's own escape sequence, so this
-        # works over ssh and fails silently on terminals that refuse it.
-        self.app.copy_to_clipboard(self.secrets.password)
-        self.notify("Password copied.")
+        self.copy()
+
+    @work(group="clipboard")
+    async def copy(self) -> None:
+        await copy_password(self, self.secrets.password)
 
     def action_close(self) -> None:
         self.dismiss(None)

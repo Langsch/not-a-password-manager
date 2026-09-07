@@ -26,6 +26,8 @@ class StoredSession:
     base_url: str
     token: str
     expires_at: datetime
+    # Not a secret, and it saves asking who you are on the way back in.
+    email: str = ""
 
     def is_expired(self) -> bool:
         return self.expires_at <= datetime.now(UTC)
@@ -62,6 +64,7 @@ def save(session: StoredSession) -> None:
         "base_url": session.base_url,
         "token": session.token,
         "expires_at": session.expires_at.isoformat(),
+        "email": session.email,
     }
 
     text = json.dumps(body, indent=2) + "\n"
@@ -100,4 +103,9 @@ def _from_body(body: dict[str, Any]) -> StoredSession | None:
     if deadline.tzinfo is None:
         return None
 
-    return StoredSession(base_url=base_url, token=token, expires_at=deadline)
+    email = body.get("email")
+
+    if not isinstance(email, str):
+        email = ""
+
+    return StoredSession(base_url=base_url, token=token, expires_at=deadline, email=email)
