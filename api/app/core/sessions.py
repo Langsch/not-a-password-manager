@@ -20,16 +20,22 @@ ABSOLUTE_LIFETIME = timedelta(days=30)
 
 async def open_session(conn: AsyncConnection[Any], user_id: int) -> tuple[str, datetime]:
     """Returns the token to hand to the client, and when it currently expires."""
+    sql = """
+        INSERT INTO sessions (token_hash, user_id, expires_at, absolute_expires_at)
+        VALUES (%(token_hash)s, %(user_id)s, now() + %(idle)s, now() + %(absolute)s)
+        RETURNING expires_at
+    """
+
     token = new_token()
+    params = {
+        "token_hash": token_digest(token),
+        "user_id": user_id,
+        "idle": IDLE_WINDOW,
+        "absolute": ABSOLUTE_LIFETIME,
+    }
+
     async with conn.cursor() as cur:
-        await cur.execute(
-            """
-            INSERT INTO sessions (token_hash, user_id, expires_at, absolute_expires_at)
-            VALUES (%s, %s, now() + %s, now() + %s)
-            RETURNING expires_at
-            """,
-            (token_digest(token), user_id, IDLE_WINDOW, ABSOLUTE_LIFETIME),
-        )
+        await cur.execute(sql, params)
         row = await cur.fetchone()
 
     assert row is not None  # noqa: S101 — RETURNING on a successful INSERT
@@ -43,18 +49,22 @@ async def touch_session(conn: AsyncConnection[Any], token: str) -> int | None:
     table's CHECK constraint forbids: near the end of the thirty days a plain
     now() + 7 days would fail the write.
     """
+    sql = """
+        UPDATE sessions
+           SET expires_at = LEAST(now() + %(idle)s, absolute_expires_at)
+         WHERE token_hash = %(token_hash)s
+           AND expires_at > now()
+           AND absolute_expires_at > now()
+        RETURNING user_id
+    """
+
+    params = {
+        "idle": IDLE_WINDOW,
+        "token_hash": token_digest(token),
+    }
+
     async with conn.cursor() as cur:
-        await cur.execute(
-            """
-            UPDATE sessions
-               SET expires_at = LEAST(now() + %s, absolute_expires_at)
-             WHERE token_hash = %s
-               AND expires_at > now()
-               AND absolute_expires_at > now()
-            RETURNING user_id
-            """,
-            (IDLE_WINDOW, token_digest(token)),
-        )
+        await cur.execute(sql, params)
         row = await cur.fetchone()
 
     if row is None:
@@ -64,14 +74,22 @@ async def touch_session(conn: AsyncConnection[Any], token: str) -> int | None:
 
 
 async def close_session(conn: AsyncConnection[Any], token: str) -> None:
-    await conn.execute(
-        "DELETE FROM sessions WHERE token_hash = %s",
-        (token_digest(token),),
-    )
+    sql = """
+        DELETE FROM sessions
+         WHERE token_hash = %(token_hash)s
+    """
+
+    params = {"token_hash": token_digest(token)}
+
+    await conn.execute(sql, params)
 
 
 async def close_all_sessions(conn: AsyncConnection[Any], user_id: int) -> None:
-    await conn.execute(
-        "DELETE FROM sessions WHERE user_id = %s",
-        (user_id,),
-    )
+    sql = """
+        DELETE FROM sessions
+         WHERE user_id = %(user_id)s
+    """
+
+    params = {"user_id": user_id}
+
+    await conn.execute(sql, params)

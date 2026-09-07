@@ -78,8 +78,10 @@ def client(migrated_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     from app.config import get_settings
     from app.main import app
 
+    sql = f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"
+
     with psycopg.connect(migrated_database, autocommit=True) as conn:
-        conn.execute(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE")
+        conn.execute(sql)
 
     monkeypatch.setenv("DATABASE_URL", migrated_database)
     get_settings.cache_clear()
@@ -94,9 +96,9 @@ def client(migrated_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 def sql(migrated_database: str) -> Iterator[object]:
     """Run a query against the test database and get rows back."""
 
-    def run(query: str, params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+    def run(sql: str, params: dict[str, object] | None = None) -> list[tuple[object, ...]]:
         with psycopg.connect(migrated_database, autocommit=True) as conn, conn.cursor() as cur:
-            cur.execute(query, params)  # type: ignore[arg-type]
+            cur.execute(sql, params)  # type: ignore[arg-type]
 
             # UPDATE and DELETE produce no rows; asking anyway is an error.
             if cur.description is None:
