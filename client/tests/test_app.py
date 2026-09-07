@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from napm import api, session
+from napm import api, preferences, session
 from napm.app import NapmApp
 from napm.screens.items_pane import ItemsPane
 from napm.screens.login import LoginScreen
@@ -488,3 +488,51 @@ async def test_an_expired_token_sends_you_back_to_the_login_screen(server, confi
 
         assert isinstance(app.screen, LoginScreen)
         assert session.load() is None
+
+
+# --- what the app remembers about itself --------------------------------------
+
+
+async def test_the_theme_survives_closing_the_app(server, config_dir):
+    """Textual resets `theme` to its default on every run; this is what does not."""
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        app.theme = "gruvbox"
+
+        await settle(pilot)
+
+    assert preferences.load().theme == "gruvbox"
+
+    again = NapmApp(base_url=BASE)
+
+    async with again.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        assert again.theme == "gruvbox"
+
+
+async def test_a_theme_that_no_longer_exists_is_ignored(server, config_dir):
+    preferences.save(preferences.Preferences(theme="a-theme-from-another-version"))
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+        assert app.theme in app.available_themes
+
+
+async def test_starting_up_does_not_overwrite_the_stored_theme(server, config_dir):
+    """The default is applied before the file is read, so arming the save late
+    is what keeps it from clobbering the choice on the way in."""
+    preferences.save(preferences.Preferences(theme="nord"))
+
+    app = NapmApp(base_url=BASE)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(pilot)
+
+    assert preferences.load().theme == "nord"

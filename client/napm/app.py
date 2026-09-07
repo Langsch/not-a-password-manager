@@ -11,7 +11,7 @@ import contextlib
 
 from textual.app import App
 
-from napm import api, errors, session
+from napm import api, errors, preferences, session
 from napm.screens.login import LoginScreen
 from napm.screens.main import MainScreen
 from napm.screens.modals import HELD_IN_MEMORY, AskPassword
@@ -29,6 +29,12 @@ class NapmApp(App[None]):
         self.account_password: str | None = None
         self._client: api.Client | None = None
 
+        # Read before mounting: the theme is applied on mount, and saving is
+        # only armed afterwards so the default does not overwrite the choice
+        # on the way in.
+        self._preferences = preferences.load()
+        self._remember_theme = False
+
     @property
     def client(self) -> api.Client:
         if self._client is None:
@@ -37,6 +43,8 @@ class NapmApp(App[None]):
         return self._client
 
     def on_mount(self) -> None:
+        self.apply_theme()
+
         stored = session.load()
 
         if stored is None:
@@ -56,6 +64,21 @@ class NapmApp(App[None]):
         self.sub_title = stored.email
 
         self.push_screen(MainScreen())
+
+    def apply_theme(self) -> None:
+        chosen = self._preferences.theme
+
+        if chosen and chosen in self.available_themes:
+            self.theme = chosen
+
+        self._remember_theme = True
+
+    def watch_theme(self, theme: str) -> None:
+        """Textual forgets the theme between runs; this is what remembers it."""
+        if not self._remember_theme:
+            return
+
+        preferences.save(preferences.Preferences(theme=theme))
 
     async def on_unmount(self) -> None:
         self.account_password = None
