@@ -45,8 +45,8 @@ FastAPI · PostgreSQL 18+ · psycopg 3 with raw SQL · Alembic · Docker
 
 Base: `/api/v1` · Auth: `Authorization: Bearer <token>`
 
-Dates are ISO-8601 with an offset. Every id in a URL or a response is a UUID — the
-database's sequential id never leaves.
+Dates are ISO-8601 with an offset — UTC, so they end in `Z`. Every id in a URL or a
+response is a UUID; the database's sequential id never leaves.
 
 ### Errors
 
@@ -70,6 +70,14 @@ Every failure uses the same envelope:
 
 Someone else's item returns `404`, not `403` — a `403` would confirm that it exists.
 
+Two more come from the framework, before a route is reached. They are here because
+the envelope has no exceptions, not because an endpoint raises them:
+
+| code | HTTP | When |
+| --- | --- | --- |
+| `NOT_FOUND` | 404 | no such path |
+| `METHOD_NOT_ALLOWED` | 405 | the path exists, the method does not |
+
 ---
 
 ## Account
@@ -82,7 +90,7 @@ Someone else's item returns `404`, not `403` — a `403` would confirm that it e
 ```json
 // 201
 { "id": "018f3a2b-…", "email": "rafael@example.com",
-  "created_at": "2026-09-07T14:22:10-03:00" }
+  "created_at": "2026-09-07T05:32:57.594865Z" }
 ```
 `VALIDATION_ERROR` · `EMAIL_ALREADY_REGISTERED`
 
@@ -97,7 +105,7 @@ Returns no token — only login issues tokens.
 ```
 ```json
 // 200
-{ "token": "9f2a7c1e4b8d…", "expires_at": "2026-09-14T14:22:10-03:00" }
+{ "token": "9f2a7c1e4b8d…", "expires_at": "2026-09-14T05:32:57.594865Z" }
 ```
 `VALIDATION_ERROR` · `INVALID_CREDENTIALS`
 
@@ -148,8 +156,8 @@ GET /items?page=1&per_page=50&q=git
   "data": [
     { "id": "019a7f31-…", "name": "GitHub", "username": "rafael",
       "url": "https://github.com",
-      "created_at": "2026-09-07T14:22:10-03:00",
-      "updated_at": "2026-09-07T14:22:10-03:00" }
+      "created_at": "2026-09-07T05:32:57.594865Z",
+      "updated_at": "2026-09-07T05:32:57.594865Z" }
   ],
   "meta": { "page": 1, "per_page": 50, "total": 137, "pages": 3 }
 }
@@ -169,14 +177,16 @@ A page past the end returns `200` with an empty `data`.
 ```
 
 **`password` is optional.** Leave it out and the server generates one and returns it
-in the response.
+in the response — 20 characters drawn from letters, digits and `!#$%&*+-=?@^_~`,
+around 125 bits. There are no options: one good default is one less thing to get
+wrong.
 
 ```json
 // 201 — the password field appears only when it was generated
 { "id": "019a7f31-…", "name": "GitHub", "username": "rafael", "url": null,
-  "password": "hQ7-vk2Rm9-Ldn4Tzb",
-  "created_at": "2026-09-07T14:22:10-03:00",
-  "updated_at": "2026-09-07T14:22:10-03:00" }
+  "password": "qZJC@@&ZZ+y7sY+I@_nv",
+  "created_at": "2026-09-07T05:32:57.594865Z",
+  "updated_at": "2026-09-07T05:32:57.594865Z" }
 ```
 
 Required: `name`. · `VALIDATION_ERROR` · `UNAUTHENTICATED`
