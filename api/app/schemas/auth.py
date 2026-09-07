@@ -21,6 +21,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=1024)
+
+
 class TokenResponse(BaseModel):
     token: str
     expires_at: datetime
