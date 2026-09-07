@@ -219,3 +219,6 @@ __marimo__/
 
 # Working document
 PLAN.md
+
+# Local environment
+.env

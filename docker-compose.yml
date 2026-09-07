@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: passwords
+      POSTGRES_USER: passwords
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      # PostgreSQL 18 images want the mount one level up, at /var/lib/postgresql,
+      # so the data lands in a major-version subdirectory and pg_upgrade --link
+      # does not run into a mount boundary. Mounting .../data fails to start.
+      - db-data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U passwords -d passwords"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://passwords:${POSTGRES_PASSWORD}@db:5432/passwords
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
+    ports:
+      - "8000:8000"
+
+volumes:
+  db-data:
