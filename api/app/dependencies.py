@@ -19,7 +19,11 @@ bearer = HTTPBearer(auto_error=False)
 
 
 async def db(request: Request) -> AsyncIterator[AsyncConnection[Any]]:
-    """A connection from the pool, committed on success and rolled back on error."""
+    """A connection from the pool, returned to it when the request is done.
+
+    It commits as it goes (see `create_pool`); this dependency no longer owns
+    the commit, because its teardown runs after the response has been sent.
+    """
     async with request.app.state.pool.connection() as conn:
         yield conn
 

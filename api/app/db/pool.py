@@ -16,5 +16,14 @@ def create_pool(dsn: str) -> AsyncConnectionPool:
         min_size=1,
         max_size=10,
         open=False,
-        kwargs={"row_factory": dict_row},
+        # Autocommit, so a write lands while the route is still running.
+        # FastAPI tears a dependency with `yield` down *after* the response has
+        # gone out, so committing there is too late: a client that fires its
+        # next request immediately could reach a different pooled connection
+        # and not see the row yet. Logging in and using the token straight
+        # afterwards returned a spurious 401 that way.
+        #
+        # Whatever needs more than one statement to land together says so with
+        # `conn.transaction()` — see `update_item` and `change_password`.
+        kwargs={"row_factory": dict_row, "autocommit": True},
     )
