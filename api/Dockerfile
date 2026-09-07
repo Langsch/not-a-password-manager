@@ -12,10 +12,16 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /srv
 
 # Dependencies first: this layer is only rebuilt when the manifests change.
-COPY pyproject.toml uv.lock* ./
+COPY api/pyproject.toml api/uv.lock* ./
 RUN uv sync --frozen --no-install-project 2>/dev/null || uv sync --no-install-project
 
-COPY app ./app
+COPY api/alembic.ini ./
+COPY api/alembic ./alembic
+COPY api/app ./app
+COPY api/tests ./tests
+
+# The drift test compares the migrations against this file.
+COPY schema.sql ./schema.sql
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
