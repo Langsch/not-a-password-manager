@@ -36,6 +36,15 @@ class CreatedItem(ItemSummary):
     password: str | None = None
 
 
+class RevealRequest(BaseModel):
+    password: str
+
+
+class RevealedSecrets(BaseModel):
+    password: str
+    notes: str | None
+
+
 class PageMeta(BaseModel):
     page: int
     per_page: int
