@@ -1,6 +1,7 @@
 """FastAPI application entrypoint.
 
 Owns the lifespan: the PostgreSQL pool opens on startup and closes on shutdown.
+Mounts the routers under /api/v1 and registers the error envelope.
 
 Migrations are *not* run here. ``alembic upgrade head`` is a separate command,
 so two instances starting at once cannot race each other through the same
@@ -14,8 +15,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api import health
 from app.config import get_settings
 from app.db.pool import create_pool
+from app.errors import register_error_handlers
+
+API_PREFIX = "/api/v1"
 
 
 @asynccontextmanager
@@ -37,3 +42,6 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+register_error_handlers(app)
+app.include_router(health.router, prefix=API_PREFIX)

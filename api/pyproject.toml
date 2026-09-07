@@ -50,3 +50,6 @@ disallow_untyped_defs = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra -q"
+# The image installs dependencies without installing the project, so pytest needs
+# the working directory on sys.path to import `app`.
+pythonpath = ["."]
