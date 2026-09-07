@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import math
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query, status
 
 from app.core.create_item import create_item
 from app.core.list_items import list_items
+from app.core.reveal_item import reveal_item
 from app.dependencies import Caller, Crypto, Db
 from app.schemas.items import (
     DEFAULT_PAGE_SIZE,
@@ -18,6 +20,8 @@ from app.schemas.items import (
     ItemPage,
     ItemSummary,
     PageMeta,
+    RevealedSecrets,
+    RevealRequest,
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -102,3 +106,25 @@ async def index(
     )
 
     return ItemPage(data=data, meta=meta)
+
+
+@router.post("/{item_id}/reveal")
+async def reveal(
+    item_id: UUID,
+    payload: RevealRequest,
+    caller: Caller,
+    conn: Db,
+    cipher: Crypto,
+) -> RevealedSecrets:
+    secrets = await reveal_item(
+        conn,
+        cipher,
+        user_id=caller,
+        item_id=item_id,
+        account_password=payload.password,
+    )
+
+    return RevealedSecrets(
+        password=secrets.password,
+        notes=secrets.notes,
+    )
