@@ -70,7 +70,10 @@ def test_an_unknown_email_costs_the_same_time_as_a_wrong_password(client: TestCl
 def test_the_token_is_never_stored(client: TestClient, sql) -> None:  # type: ignore[no-untyped-def]
     token = sign_in(client)
 
-    rows = sql("SELECT s.token_hash FROM sessions s")
+    rows = sql("""
+        SELECT s.token_hash
+          FROM sessions s
+    """)
 
     assert len(rows) == 1
     assert token.encode() not in bytes(rows[0][0])
@@ -111,7 +114,10 @@ def test_logout_kills_the_token_immediately(client: TestClient) -> None:
 
 def test_an_idle_session_expires(client: TestClient, sql) -> None:  # type: ignore[no-untyped-def]
     token = sign_in(client)
-    sql("UPDATE sessions s SET expires_at = now() - interval '1 second'")
+    sql("""
+        UPDATE sessions s
+           SET expires_at = now() - interval '1 second'
+    """)
 
     assert client.post(LOGOUT, headers=auth(token)).status_code == 401
 
@@ -123,20 +129,27 @@ async def test_a_session_still_dies_at_the_absolute_deadline(
 ) -> None:
     """Using it every day renews the idle window, never the thirty-day ceiling."""
     token = sign_in(client)
-    sql(
-        "UPDATE sessions s SET expires_at = now() + interval '30 minutes', "
-        "absolute_expires_at = now() + interval '30 minutes'"
-    )
+    sql("""
+        UPDATE sessions s
+           SET expires_at = now() + interval '30 minutes',
+               absolute_expires_at = now() + interval '30 minutes'
+    """)
 
     # A renewal now caps at the absolute deadline instead of jumping seven days.
     assert await touch_session(aconn, token) is not None
-    capped, absolute = sql("SELECT s.expires_at, s.absolute_expires_at FROM sessions s")[0]
+    rows = sql("""
+        SELECT s.expires_at,
+               s.absolute_expires_at
+          FROM sessions s
+    """)
+    capped, absolute = rows[0]
     assert capped == absolute
 
-    sql(
-        "UPDATE sessions s SET expires_at = now() - interval '1 second', "
-        "absolute_expires_at = now() - interval '1 second'"
-    )
+    sql("""
+        UPDATE sessions s
+           SET expires_at = now() - interval '1 second',
+               absolute_expires_at = now() - interval '1 second'
+    """)
     assert await touch_session(aconn, token) is None
 
 
@@ -146,12 +159,24 @@ async def test_using_the_session_pushes_the_idle_deadline_forward(
     sql,  # type: ignore[no-untyped-def]
 ) -> None:
     token = sign_in(client)
-    sql("UPDATE sessions s SET expires_at = now() + interval '1 hour'")
-    before = sql("SELECT s.expires_at FROM sessions s")[0][0]
+    sql("""
+        UPDATE sessions s
+           SET expires_at = now() + interval '1 hour'
+    """)
+    rows = sql("""
+        SELECT s.expires_at
+          FROM sessions s
+    """)
+    before = rows[0][0]
 
     assert await touch_session(aconn, token) is not None
 
-    after = sql("SELECT s.expires_at FROM sessions s")[0][0]
+    rows = sql("""
+        SELECT s.expires_at
+          FROM sessions s
+    """)
+    after = rows[0][0]
+
     assert after > before
 
 
@@ -162,12 +187,18 @@ async def test_renewal_never_overtakes_the_absolute_deadline(
 ) -> None:
     """Near the end of the thirty days a plain now() + 7 days would break the CHECK."""
     token = sign_in(client)
-    sql(
-        "UPDATE sessions s SET expires_at = now() + interval '30 minutes', "
-        "absolute_expires_at = now() + interval '1 hour'"
-    )
+    sql("""
+        UPDATE sessions s
+           SET expires_at = now() + interval '30 minutes',
+               absolute_expires_at = now() + interval '1 hour'
+    """)
 
     assert await touch_session(aconn, token) is not None
 
-    expires, absolute = sql("SELECT s.expires_at, s.absolute_expires_at FROM sessions s")[0]
+    rows = sql("""
+        SELECT s.expires_at,
+               s.absolute_expires_at
+          FROM sessions s
+    """)
+    expires, absolute = rows[0]
     assert expires <= absolute

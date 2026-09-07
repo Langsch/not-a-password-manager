@@ -104,10 +104,16 @@ def test_migrations_go_up_and_down(scratch_db) -> None:  # type: ignore[no-untyp
 
     def tables() -> set[str]:
         with psycopg.connect(dsn) as conn, conn.cursor(row_factory=tuple_row) as cur:
-            rows = cur.execute(
-                "SELECT t.tablename FROM pg_tables t WHERE t.schemaname = 'public'"
-            ).fetchall()
-        return {r[0] for r in rows} - {"alembic_version"}
+            sql = """
+                SELECT t.tablename
+                  FROM pg_tables t
+                 WHERE t.schemaname = 'public'
+            """
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+        names = {r[0] for r in rows}
+        return names - {"alembic_version"}
 
     alembic("upgrade", "head")
     assert tables() == {"users", "sessions", "items"}

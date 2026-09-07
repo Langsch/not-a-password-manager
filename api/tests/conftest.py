@@ -30,17 +30,32 @@ def scratch_db(base_url: str) -> Iterator[object]:
     created: list[str] = []
 
     def make(name: str) -> str:
-        with psycopg.connect(_with_database(base_url, "postgres"), autocommit=True) as conn:
-            conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-            conn.execute(f'CREATE DATABASE "{name}"')
+        drop = f"""
+            DROP DATABASE IF EXISTS "{name}"
+            WITH (FORCE)
+        """
+        create = f"""
+            CREATE DATABASE "{name}"
+        """
+
+        admin = _with_database(base_url, "postgres")
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(drop)
+            conn.execute(create)
+
         created.append(name)
         return _with_database(base_url, name)
 
     yield make
 
-    with psycopg.connect(_with_database(base_url, "postgres"), autocommit=True) as conn:
+    admin = _with_database(base_url, "postgres")
+    with psycopg.connect(admin, autocommit=True) as conn:
         for name in created:
-            conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            drop = f"""
+                DROP DATABASE IF EXISTS "{name}"
+                WITH (FORCE)
+            """
+            conn.execute(drop)
 
 
 TEST_DATABASE = "passwords_test"
@@ -53,9 +68,17 @@ def migrated_database(base_url: str) -> Iterator[str]:
     admin = _with_database(base_url, "postgres")
     dsn = _with_database(base_url, TEST_DATABASE)
 
+    drop = f"""
+        DROP DATABASE IF EXISTS "{TEST_DATABASE}"
+        WITH (FORCE)
+    """
+    create = f"""
+        CREATE DATABASE "{TEST_DATABASE}"
+    """
+
     with psycopg.connect(admin, autocommit=True) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DATABASE}" WITH (FORCE)')
-        conn.execute(f'CREATE DATABASE "{TEST_DATABASE}"')
+        conn.execute(drop)
+        conn.execute(create)
 
     result = subprocess.run(
         ["alembic", "upgrade", "head"],
@@ -69,7 +92,7 @@ def migrated_database(base_url: str) -> Iterator[str]:
     yield dsn
 
     with psycopg.connect(admin, autocommit=True) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DATABASE}" WITH (FORCE)')
+        conn.execute(drop)
 
 
 @pytest.fixture
@@ -78,7 +101,10 @@ def client(migrated_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     from app.config import get_settings
     from app.main import app
 
-    sql = f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"
+    sql = f"""
+        TRUNCATE {", ".join(TABLES)}
+        RESTART IDENTITY CASCADE
+    """
 
     with psycopg.connect(migrated_database, autocommit=True) as conn:
         conn.execute(sql)
