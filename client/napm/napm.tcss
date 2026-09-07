@@ -75,8 +75,11 @@ Input:focus {
 }
 
 #login-art {
-    color: $accent;
     height: auto;
+    /* The drawing is a grid; wrapping it turns it into noise. A terminal too
+       narrow for twenty-two columns loses the right edge instead. */
+    text-wrap: nowrap;
+    text-overflow: clip;
 }
 
 .brand-tagline {
@@ -105,9 +108,10 @@ Input:focus {
 }
 
 #art {
-    color: $accent;
     height: auto;
     padding-bottom: 1;
+    text-wrap: nowrap;
+    text-overflow: clip;
 }
 
 .side-label {

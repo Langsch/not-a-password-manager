@@ -13,7 +13,7 @@ from textual.screen import Screen
 from textual.widgets import ContentSwitcher, Footer, Header, Label, ListItem, ListView, Static
 
 from napm import session
-from napm.art import WORDMARK
+from napm.art import banner
 from napm.screens.account_pane import AccountPane
 from napm.screens.items_pane import ItemsPane
 
@@ -37,7 +37,7 @@ class MainScreen(Screen[None]):
 
         with Horizontal(id="body"):
             with Vertical(id="sidebar"):
-                yield Static(WORDMARK, id="art")
+                yield Static(banner(), id="art")
                 yield Label("NAVIGATION", classes="side-label")
 
                 yield ListView(

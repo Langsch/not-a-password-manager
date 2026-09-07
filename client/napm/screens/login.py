@@ -19,7 +19,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Static, Tab, Tabs
 
 from napm import api, errors, session
-from napm.art import WORDMARK
+from napm.art import banner
 
 if TYPE_CHECKING:
     from napm.app import NapmApp
@@ -46,7 +46,9 @@ class LoginScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="login-frame"), Vertical(id="login-card"):
-            yield Static(WORDMARK, id="login-art")
+            # Only the wordmark here: the card already carries three fields and a
+            # button, and the padlock would push Sign in below the fold.
+            yield Static(banner(mascot=False, legend=False), id="login-art")
             yield Static(TAGLINE, classes="brand-tagline")
 
             yield Tabs(
