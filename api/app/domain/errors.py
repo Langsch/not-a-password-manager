@@ -1,0 +1,46 @@
+"""The failures this API can report.
+
+Every one carries the ``code`` the client branches on and the status it maps to,
+so the catalogue lives in one place instead of being spread across routes.
+
+Codes say what the caller did, never what the system found: a wrong email and a
+wrong password are both ``INVALID_CREDENTIALS``, because telling them apart would
+hand a stranger the list of registered emails.
+"""
+
+from __future__ import annotations
+
+
+class DomainError(Exception):
+    code: str = "INTERNAL_ERROR"
+    status: int = 500
+    message: str = "Something went wrong."
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(message or self.message)
+        if message:
+            self.message = message
+
+
+class Unauthenticated(DomainError):
+    code = "UNAUTHENTICATED"
+    status = 401
+    message = "Missing, unknown or expired token."
+
+
+class InvalidCredentials(DomainError):
+    code = "INVALID_CREDENTIALS"
+    status = 401
+    message = "Wrong email or password."
+
+
+class EmailAlreadyRegistered(DomainError):
+    code = "EMAIL_ALREADY_REGISTERED"
+    status = 409
+    message = "That email already has an account."
+
+
+class ItemNotFound(DomainError):
+    code = "ITEM_NOT_FOUND"
+    status = 404
+    message = "No such item."
