@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import auth, health
 from app.config import get_settings
 from app.db.pool import create_pool
 from app.errors import register_error_handlers
@@ -44,4 +44,5 @@ app = FastAPI(
 )
 
 register_error_handlers(app)
+app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(health.router, prefix=API_PREFIX)
