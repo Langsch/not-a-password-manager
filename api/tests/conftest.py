@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
 
 
 def _with_database(url: str, name: str) -> str:
@@ -27,17 +30,32 @@ def scratch_db(base_url: str) -> Iterator[object]:
     created: list[str] = []
 
     def make(name: str) -> str:
-        with psycopg.connect(_with_database(base_url, "postgres"), autocommit=True) as conn:
-            conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-            conn.execute(f'CREATE DATABASE "{name}"')
+        drop = f"""
+            DROP DATABASE IF EXISTS "{name}"
+            WITH (FORCE)
+        """
+        create = f"""
+            CREATE DATABASE "{name}"
+        """
+
+        admin = _with_database(base_url, "postgres")
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(drop)
+            conn.execute(create)
+
         created.append(name)
         return _with_database(base_url, name)
 
     yield make
 
-    with psycopg.connect(_with_database(base_url, "postgres"), autocommit=True) as conn:
+    admin = _with_database(base_url, "postgres")
+    with psycopg.connect(admin, autocommit=True) as conn:
         for name in created:
-            conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            drop = f"""
+                DROP DATABASE IF EXISTS "{name}"
+                WITH (FORCE)
+            """
+            conn.execute(drop)
 
 
 TEST_DATABASE = "passwords_test"
@@ -50,9 +68,17 @@ def migrated_database(base_url: str) -> Iterator[str]:
     admin = _with_database(base_url, "postgres")
     dsn = _with_database(base_url, TEST_DATABASE)
 
+    drop = f"""
+        DROP DATABASE IF EXISTS "{TEST_DATABASE}"
+        WITH (FORCE)
+    """
+    create = f"""
+        CREATE DATABASE "{TEST_DATABASE}"
+    """
+
     with psycopg.connect(admin, autocommit=True) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DATABASE}" WITH (FORCE)')
-        conn.execute(f'CREATE DATABASE "{TEST_DATABASE}"')
+        conn.execute(drop)
+        conn.execute(create)
 
     result = subprocess.run(
         ["alembic", "upgrade", "head"],
@@ -66,7 +92,7 @@ def migrated_database(base_url: str) -> Iterator[str]:
     yield dsn
 
     with psycopg.connect(admin, autocommit=True) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DATABASE}" WITH (FORCE)')
+        conn.execute(drop)
 
 
 @pytest.fixture
@@ -75,8 +101,13 @@ def client(migrated_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     from app.config import get_settings
     from app.main import app
 
+    sql = f"""
+        TRUNCATE {", ".join(TABLES)}
+        RESTART IDENTITY CASCADE
+    """
+
     with psycopg.connect(migrated_database, autocommit=True) as conn:
-        conn.execute(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE")
+        conn.execute(sql)
 
     monkeypatch.setenv("DATABASE_URL", migrated_database)
     get_settings.cache_clear()
@@ -91,9 +122,23 @@ def client(migrated_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 def sql(migrated_database: str) -> Iterator[object]:
     """Run a query against the test database and get rows back."""
 
-    def run(query: str, params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
-        with psycopg.connect(migrated_database) as conn, conn.cursor() as cur:
-            cur.execute(query, params)  # type: ignore[arg-type]
+    def run(sql: str, params: dict[str, object] | None = None) -> list[tuple[object, ...]]:
+        with psycopg.connect(migrated_database, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(sql, params)  # type: ignore[arg-type]
+
+            # UPDATE and DELETE produce no rows; asking anyway is an error.
+            if cur.description is None:
+                return []
+
             return cur.fetchall()
 
     yield run
+
+
+@pytest.fixture
+async def aconn(migrated_database: str) -> AsyncIterator[AsyncConnection[Any]]:
+    """An async connection for exercising the core layer without going through HTTP."""
+    async with await AsyncConnection.connect(
+        migrated_database, autocommit=True, row_factory=dict_row
+    ) as conn:
+        yield conn

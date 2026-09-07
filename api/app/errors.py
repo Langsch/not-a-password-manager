@@ -48,5 +48,10 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        details = {
+            "method": request.method,
+            "path": request.url.path,
+        }
+        log.exception("unhandled error on %(method)s %(path)s", details)
+
         return envelope(500, "INTERNAL_ERROR", "Something went wrong.")

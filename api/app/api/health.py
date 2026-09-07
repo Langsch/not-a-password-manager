@@ -14,6 +14,11 @@ CONNECT_TIMEOUT_SECONDS = 2.0
 
 @router.get("/health")
 async def health(request: Request) -> dict[str, str]:
+    sql = """
+        SELECT 1
+    """
+
     async with request.app.state.pool.connection(timeout=CONNECT_TIMEOUT_SECONDS) as conn:
-        await conn.execute("SELECT 1")
+        await conn.execute(sql)
+
     return {"status": "ok"}

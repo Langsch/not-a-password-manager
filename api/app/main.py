@@ -25,7 +25,9 @@ API_PREFIX = "/api/v1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    pool = create_pool(get_settings().database_url)
+    settings = get_settings()
+    pool = create_pool(settings.database_url)
+
     await pool.open(wait=True)
     app.state.pool = pool
     try:

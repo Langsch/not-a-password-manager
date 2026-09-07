@@ -64,7 +64,10 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(255), nullable=False),
         *_timestamps(),
     )
-    op.execute("CREATE UNIQUE INDEX users_email_lower_key ON users (lower(email))")
+    op.execute("""
+        CREATE UNIQUE INDEX users_email_lower_key
+            ON users (lower(email))
+    """)
     _touch_trigger("users")
 
     op.create_table(
@@ -112,4 +115,6 @@ def downgrade() -> None:
     op.drop_table("items")
     op.drop_table("sessions")
     op.drop_table("users")
-    op.execute("DROP FUNCTION IF EXISTS set_updated_at()")
+    op.execute("""
+        DROP FUNCTION IF EXISTS set_updated_at()
+    """)
