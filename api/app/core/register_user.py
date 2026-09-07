@@ -16,9 +16,11 @@ from app.security.passwords import hash_password
 
 async def register_user(conn: AsyncConnection[Any], email: str, password: str) -> dict[str, Any]:
     sql = """
-        INSERT INTO users (email, password_hash)
+        INSERT INTO users AS u (email, password_hash)
         VALUES (%(email)s, %(password_hash)s)
-        RETURNING external_id AS id, email, created_at
+        RETURNING u.external_id AS id,
+                  u.email,
+                  u.created_at
     """
 
     params = {
@@ -34,4 +36,9 @@ async def register_user(conn: AsyncConnection[Any], email: str, password: str) -
         raise EmailAlreadyRegistered from exc
 
     assert row is not None  # noqa: S101 — RETURNING on a successful INSERT
-    return dict(row)
+
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "created_at": row["created_at"],
+    }

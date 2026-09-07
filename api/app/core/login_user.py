@@ -14,9 +14,10 @@ from app.security.passwords import verify_password, waste_time
 
 async def login_user(conn: AsyncConnection[Any], email: str, password: str) -> tuple[str, datetime]:
     sql = """
-        SELECT id, password_hash
-          FROM users
-         WHERE lower(email) = lower(%(email)s)
+        SELECT u.id,
+               u.password_hash
+          FROM users u
+         WHERE lower(u.email) = lower(%(email)s)
     """
 
     params = {"email": email}

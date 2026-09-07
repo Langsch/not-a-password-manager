@@ -15,14 +15,25 @@ router = APIRouter(prefix="/auth", tags=["account"])
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: RegisterRequest, conn: Db) -> UserResponse:
-    user = await register_user(conn, str(payload.email), payload.password)
-    return UserResponse(**user)
+    email = str(payload.email)
+    user = await register_user(conn, email, payload.password)
+
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        created_at=user["created_at"],
+    )
 
 
 @router.post("/login")
 async def login(payload: LoginRequest, conn: Db) -> TokenResponse:
-    token, expires_at = await login_user(conn, str(payload.email), payload.password)
-    return TokenResponse(token=token, expires_at=expires_at)
+    email = str(payload.email)
+    token, expires_at = await login_user(conn, email, payload.password)
+
+    return TokenResponse(
+        token=token,
+        expires_at=expires_at,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

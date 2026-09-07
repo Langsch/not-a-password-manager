@@ -17,9 +17,10 @@ class DomainError(Exception):
     message: str = "Something went wrong."
 
     def __init__(self, message: str | None = None) -> None:
-        super().__init__(message or self.message)
-        if message:
+        if message is not None:
             self.message = message
+
+        super().__init__(self.message)
 
 
 class Unauthenticated(DomainError):

@@ -63,7 +63,7 @@ def test_a_missing_field_is_rejected(client: TestClient) -> None:
 def test_the_password_is_never_stored(client: TestClient, sql) -> None:  # type: ignore[no-untyped-def]
     client.post(ENDPOINT, json=GOOD)
 
-    rows = sql("SELECT email, password_hash FROM users")
+    rows = sql("SELECT u.email, u.password_hash FROM users u")
 
     assert len(rows) == 1
     stored = rows[0][1]
@@ -74,7 +74,7 @@ def test_the_password_is_never_stored(client: TestClient, sql) -> None:  # type:
 def test_the_id_is_the_public_uuid_not_the_row_id(client: TestClient, sql) -> None:  # type: ignore[no-untyped-def]
     body = client.post(ENDPOINT, json=GOOD).json()
 
-    rows = sql("SELECT id, external_id::text FROM users")
+    rows = sql("SELECT u.id, u.external_id::text FROM users u")
 
     assert rows[0][0] == 1
     assert body["id"] == rows[0][1]

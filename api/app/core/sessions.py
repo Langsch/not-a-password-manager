@@ -21,9 +21,9 @@ ABSOLUTE_LIFETIME = timedelta(days=30)
 async def open_session(conn: AsyncConnection[Any], user_id: int) -> tuple[str, datetime]:
     """Returns the token to hand to the client, and when it currently expires."""
     sql = """
-        INSERT INTO sessions (token_hash, user_id, expires_at, absolute_expires_at)
+        INSERT INTO sessions AS s (token_hash, user_id, expires_at, absolute_expires_at)
         VALUES (%(token_hash)s, %(user_id)s, now() + %(idle)s, now() + %(absolute)s)
-        RETURNING expires_at
+        RETURNING s.expires_at
     """
 
     token = new_token()
@@ -50,12 +50,12 @@ async def touch_session(conn: AsyncConnection[Any], token: str) -> int | None:
     now() + 7 days would fail the write.
     """
     sql = """
-        UPDATE sessions
-           SET expires_at = LEAST(now() + %(idle)s, absolute_expires_at)
-         WHERE token_hash = %(token_hash)s
-           AND expires_at > now()
-           AND absolute_expires_at > now()
-        RETURNING user_id
+        UPDATE sessions s
+           SET expires_at = LEAST(now() + %(idle)s, s.absolute_expires_at)
+         WHERE s.token_hash = %(token_hash)s
+           AND s.expires_at > now()
+           AND s.absolute_expires_at > now()
+        RETURNING s.user_id
     """
 
     params = {
@@ -75,8 +75,8 @@ async def touch_session(conn: AsyncConnection[Any], token: str) -> int | None:
 
 async def close_session(conn: AsyncConnection[Any], token: str) -> None:
     sql = """
-        DELETE FROM sessions
-         WHERE token_hash = %(token_hash)s
+        DELETE FROM sessions s
+         WHERE s.token_hash = %(token_hash)s
     """
 
     params = {"token_hash": token_digest(token)}
@@ -86,8 +86,8 @@ async def close_session(conn: AsyncConnection[Any], token: str) -> None:
 
 async def close_all_sessions(conn: AsyncConnection[Any], user_id: int) -> None:
     sql = """
-        DELETE FROM sessions
-         WHERE user_id = %(user_id)s
+        DELETE FROM sessions s
+         WHERE s.user_id = %(user_id)s
     """
 
     params = {"user_id": user_id}
